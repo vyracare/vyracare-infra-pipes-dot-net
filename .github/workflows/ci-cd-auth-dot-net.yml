@@ -1,0 +1,62 @@
+name: CI/CD - Build .NET + Terraform
+
+on:
+  repository_dispatch:
+    types: [backend-updated]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout Infra
+      - name: Checkout Infra
+        uses: actions/checkout@v4
+
+      # Checkout Backend (usa ref enviada no payload)
+      - name: Checkout Backend
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.client_payload.repo }}
+          ref: ${{ github.event.client_payload.ref }}
+          token: ${{ secrets.PAT_TOKEN }}
+          path: backend
+
+      # Setup .NET
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # Restore + Build + Publish
+      - run: dotnet restore Vyracare.Auth/Vyracare.Auth.csproj
+      - run: dotnet build Vyracare.Auth/Vyracare.Auth.csproj -c Release --no-restore
+      - run: dotnet publish Vyracare.Auth/Vyracare.Auth.csproj -c Release -r linux-x64 --self-contained false -o ./publish
+
+      # Zipar para Lambda
+      - run: |
+          cd publish
+          zip -r ../lambda.zip .
+
+      # Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.2
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ./infra
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+        working-directory: ./infra
+
+      - name: Terraform Apply
+        if: github.event.client_payload.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve tfplan
+        working-directory: ./infra
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: us-east-1
