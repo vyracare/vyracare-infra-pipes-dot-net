@@ -38,13 +38,13 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore
-        run: dotnet restore backend/${{ inputs.project-path }}
+        run: dotnet restore ${{ inputs.project-path }}
 
       - name: Build
-        run: dotnet build backend/${{ inputs.project-path }} -c Release --no-restore
+        run: dotnet build ${{ inputs.project-path }} -c Release --no-restore
 
       - name: Publish
-        run: dotnet publish backend/${{ inputs.project-path }} -c Release -r linux-x64 --self-contained false -o ${{ inputs.output-dir }}
+        run: dotnet publish ${{ inputs.project-path }} -c Release -r linux-x64 --self-contained false -o ${{ inputs.output-dir }}
 
       - name: Zip Lambda
         run: |
