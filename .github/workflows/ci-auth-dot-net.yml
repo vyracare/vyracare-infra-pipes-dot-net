@@ -9,7 +9,8 @@ on:
         type: string
       project-path:
         description: "Caminho do .csproj relativo à raiz do repositório"
-        required: true
+        required: false
+        default: "*.csproj"
         type: string
       output-dir:
         description: "Diretório de saída do publish"
@@ -27,15 +28,16 @@ jobs:
       - name: Checkout Backend
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository }}
           ref: ${{ inputs.branch-name }}
           token: ${{ secrets.PAT_TOKEN }}
-          path: backend
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+
+      - name: List .Net Projects
+        run: ls -la *.csproj || echo "Nenhum .csproj encontrado"
 
       - name: Restore
         run: dotnet restore ${{ inputs.project-path }}
