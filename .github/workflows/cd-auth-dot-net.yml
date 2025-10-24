@@ -7,6 +7,10 @@ on:
         description: "Branch que disparou o deploy"
         required: true
         type: string
+      lambda-source-dir:
+        description: "Caminho (relativo ou absoluto) para a pasta publicada da Lambda"
+        required: false
+        type: string
     secrets:
       AWS_ACCESS_KEY_ID:
         required: true
@@ -67,6 +71,42 @@ jobs:
           repository: vyracare/vyracare-infra-pipes-dot-net
           token: ${{ secrets.PAT_TOKEN }}
           path: infra-repo
+
+      - name: Determinar diretório do pacote Lambda
+        shell: bash
+        env:
+          LAMBDA_SOURCE_INPUT: ${{ inputs.lambda-source-dir }}
+        run: |
+          candidate="${LAMBDA_SOURCE_INPUT}"
+
+          if [[ -n "${candidate}" ]]; then
+            if [[ "${candidate}" != /* ]]; then
+              candidate="${GITHUB_WORKSPACE}/${candidate}"
+            fi
+
+            if [[ ! -d "${candidate}" ]]; then
+              echo "::error::O caminho informado em inputs.lambda-source-dir ('${candidate}') não existe."
+              exit 1
+            fi
+          else
+            for path in \
+              "${GITHUB_WORKSPACE}/backend/Vyracare.Auth/publish" \
+              "${GITHUB_WORKSPACE}/publish" \
+              "${GITHUB_WORKSPACE}/infra-repo/backend/Vyracare.Auth/publish"; do
+              if [[ -d "${path}" ]]; then
+                candidate="${path}"
+                break
+              fi
+            done
+
+            if [[ -z "${candidate}" ]]; then
+              echo "::error::Não foi possível localizar a pasta publicada da Lambda. Informe inputs.lambda-source-dir ou garanta que o diretório de publicação exista."
+              exit 1
+            fi
+          fi
+
+          echo "Diretório do pacote Lambda: ${candidate}"
+          echo "TF_VAR_lambda_source_dir=${candidate}" >> "${GITHUB_ENV}"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

@@ -16,6 +16,12 @@ variable "lambda_function_name" {
   default = "vyracare-auth-dev"
 }
 
+variable "lambda_source_dir" {
+  type        = string
+  description = "Path to the published Lambda project directory"
+  default     = null
+}
+
 variable "user_pool_client_id" {
   default = "424aitrab2nma4ttgi0314dfst"
 }
