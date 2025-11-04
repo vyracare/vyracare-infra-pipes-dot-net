@@ -18,8 +18,13 @@ variable "lambda_function_name" {
 
 variable "lambda_source_dir" {
   type        = string
-  description = "Path to the published Lambda project directory"
-  default     = null
+  description = "Absolute path to the published Lambda project directory"
+  nullable    = false
+
+  validation {
+    condition     = trimspace(var.lambda_source_dir) != ""
+    error_message = "lambda_source_dir must be a non-empty path."
+  }
 }
 
 variable "user_pool_client_id" {

@@ -62,7 +62,6 @@ jobs:
           repository: vyracare/vyracare-infra-pipes-dot-net
           ref: ${{ steps.resolve_checkout_ref.outputs.ref }}
           token: ${{ secrets.PAT_TOKEN }}
-          path: infra-repo
 
       - name: Checkout Infra (default)
         if: steps.resolve_checkout_ref.outputs.ref == ''
@@ -70,18 +69,43 @@ jobs:
         with:
           repository: vyracare/vyracare-infra-pipes-dot-net
           token: ${{ secrets.PAT_TOKEN }}
-          path: infra-repo
+
+      - name: Checkout repositório chamador
+        uses: actions/checkout@v4
+        with:
+          path: caller-repo
 
       - name: Determinar diretório do pacote Lambda
         shell: bash
         env:
           LAMBDA_SOURCE_INPUT: ${{ inputs.lambda-source-dir }}
+          CALLER_REPO_PATH: caller-repo
         run: |
+          resolve_relative_path() {
+            local base_dir="$1"
+            local rel_path="$2"
+
+            if [[ -d "${base_dir}/${rel_path}" ]]; then
+              echo "${base_dir}/${rel_path}"
+            fi
+          }
+
           candidate="${LAMBDA_SOURCE_INPUT}"
 
           if [[ -n "${candidate}" ]]; then
             if [[ "${candidate}" != /* ]]; then
-              candidate="${GITHUB_WORKSPACE}/${candidate}"
+              resolved_path="$(resolve_relative_path "${GITHUB_WORKSPACE}" "${candidate}")"
+
+              if [[ -z "${resolved_path}" && -n "${CALLER_REPO_PATH}" ]]; then
+                resolved_path="$(resolve_relative_path "${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}" "${candidate}")"
+              fi
+
+              if [[ -z "${resolved_path}" ]]; then
+                echo "::error::O caminho informado em inputs.lambda-source-dir ('${candidate}') não foi encontrado nas pastas clonadas."
+                exit 1
+              fi
+
+              candidate="${resolved_path}"
             fi
 
             if [[ ! -d "${candidate}" ]]; then
@@ -89,20 +113,78 @@ jobs:
               exit 1
             fi
           else
-            for path in \
-              "${GITHUB_WORKSPACE}/backend/Vyracare.Auth/publish" \
-              "${GITHUB_WORKSPACE}/publish" \
-              "${GITHUB_WORKSPACE}/infra-repo/backend/Vyracare.Auth/publish"; do
-              if [[ -d "${path}" ]]; then
-                candidate="${path}"
-                break
-              fi
-            done
+            config_candidate=""
 
-            if [[ -z "${candidate}" ]]; then
-              echo "::error::Não foi possível localizar a pasta publicada da Lambda. Informe inputs.lambda-source-dir ou garanta que o diretório de publicação exista."
+            if [[ -n "${CALLER_REPO_PATH}" ]]; then
+              workflow_dir="${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}/.github/workflows"
+
+              if [[ -d "${workflow_dir}" ]]; then
+                while IFS= read -r config_file; do
+                  lambda_line="$(grep -E '^[[:space:]]*lambda-source-dir:' "${config_file}" | head -n 1)"
+
+                  if [[ -n "${lambda_line}" ]]; then
+                    value_part="${lambda_line#*:}"
+                    value_part="${value_part%%#*}"
+                    value_part="$(echo "${value_part}" | tr -d '"' | tr -d "'")"
+                    value_part="$(echo "${value_part}" | xargs)"
+
+                    if [[ -n "${value_part}" ]]; then
+                      config_candidate="${value_part}"
+                      echo "Fonte do caminho da Lambda obtida de: ${config_file}"
+                      break
+                    fi
+                  fi
+                done < <(find "${workflow_dir}" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
+              fi
+            fi
+
+            if [[ -n "${config_candidate}" ]]; then
+              candidate="${config_candidate}"
+            else
+              search_paths=(
+                "${GITHUB_WORKSPACE}/backend/Vyracare.Auth/publish"
+                "${GITHUB_WORKSPACE}/publish"
+              )
+
+              if [[ -n "${CALLER_REPO_PATH}" ]]; then
+                search_paths+=(
+                  "${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}/backend/Vyracare.Auth/publish"
+                  "${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}/publish"
+                )
+              fi
+
+              for path in "${search_paths[@]}"; do
+                if [[ -d "${path}" ]]; then
+                  candidate="${path}"
+                  break
+                fi
+              done
+
+              if [[ -z "${candidate}" ]]; then
+                echo "::error::Não foi possível localizar a pasta publicada da Lambda. Informe inputs.lambda-source-dir ou garanta que o diretório de publicação exista."
+                exit 1
+              fi
+            fi
+          fi
+
+          if [[ "${candidate}" != /* ]]; then
+            resolved_path="$(resolve_relative_path "${GITHUB_WORKSPACE}" "${candidate}")"
+
+            if [[ -z "${resolved_path}" && -n "${CALLER_REPO_PATH}" ]]; then
+              resolved_path="$(resolve_relative_path "${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}" "${candidate}")"
+            fi
+
+            if [[ -z "${resolved_path}" ]]; then
+              echo "::error::O caminho definido ('${candidate}') não foi encontrado nas pastas clonadas."
               exit 1
             fi
+
+            candidate="${resolved_path}"
+          fi
+
+          if [[ ! -d "${candidate}" ]]; then
+            echo "::error::O caminho definido ('${candidate}') não existe."
+            exit 1
           fi
 
           echo "Diretório do pacote Lambda: ${candidate}"

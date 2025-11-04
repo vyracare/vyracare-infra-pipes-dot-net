@@ -46,11 +46,8 @@ resource "aws_apigatewayv2_api" "http_api" {
 # Lambda Function
 # ------------------------------
 locals {
-  lambda_source_dir = (
-    var.lambda_source_dir != null && trimspace(var.lambda_source_dir) != ""
-    ? abspath(var.lambda_source_dir)
-    : abspath("${path.module}/../backend/Vyracare.Auth/publish")
-  )
+  lambda_source_dir_input = trimspace(var.lambda_source_dir)
+  lambda_source_dir       = abspath(local.lambda_source_dir_input)
 }
 
 data "archive_file" "lambda" {
