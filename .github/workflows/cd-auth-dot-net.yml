@@ -4,44 +4,92 @@ on:
   workflow_call:
     inputs:
       branch-name:
-        description: "Branch que disparou o deploy"
+        description: "Branch do backend que disparou o deploy"
         required: true
         type: string
-    secrets:
-      AWS_ACCESS_KEY_ID:
+      backend-repo:
+        description: "owner/repo do backend (ex: vyracare/vyracare-api-authentication)"
         required: true
-      AWS_SECRET_ACCESS_KEY:
+        type: string
+      project-path:
+        description: "Caminho do .csproj no repo do backend"
         required: true
-      AWS_REGION:
+        type: string
+      output-dir:
+        description: "Diretório de saída do publish (relativo ao workspace do job)"
         required: false
-      PAT_TOKEN:
-        required: true
+        default: backend-publish
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID: { required: true }
+      AWS_SECRET_ACCESS_KEY: { required: true }
+      AWS_REGION: { required: false }
+      PAT_TOKEN: { required: true }
 
 jobs:
   deploy-terraform:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Infra
-        uses: actions/checkout@v4
+    env:
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
+    steps:
+      # 1) Checkout do repositório de INFRA (este próprio repo)
+      - name: Checkout Infra (this repo)
+        uses: actions/checkout@v4
+        with:
+          # usa a branch/commit do chamado do reusable (normalmente main)
+          fetch-depth: 0
+
+      # 2) Checkout do BACKEND na ref informada
+      - name: Checkout Backend at ref
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.backend-repo }}
+          ref: ${{ inputs.branch-name }}
+          token: ${{ secrets.PAT_TOKEN }}
+          path: backend
+
+      # 3) .NET SDK
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      # 4) Restore/Build/Publish do backend
+      - name: Restore
+        run: dotnet restore "backend/${{ inputs.project-path }}"
+
+      - name: Build
+        run: dotnet build "backend/${{ inputs.project-path }}" -c Release --no-restore
+
+      - name: Publish (linux-x64)
+        run: |
+          mkdir -p "${{ inputs.output-dir }}"
+          dotnet publish "backend/${{ inputs.project-path }}" -c Release -r linux-x64 --self-contained false -o "${{ inputs.output-dir }}"
+
+      # 5) Define caminho da Lambda para o Terraform
+      - name: Export publish dir to TF_VAR
+        run: echo "TF_VAR_lambda_source_dir=${GITHUB_WORKSPACE}/${{ inputs.output-dir }}" >> $GITHUB_ENV
+
+      # 6) Terraform no diretório ./infra (dentro deste repo)
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.2
 
       - name: Terraform Init
-        run: terraform init
         working-directory: ./infra
+        run: terraform init
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
         working-directory: ./infra
+        run: terraform plan -out=tfplan
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
         working-directory: ./infra
-
+        # se quiser aplicar só quando a branch do backend for main, coloque um if
+        run: terraform apply -auto-approve tfplan
+    # Credenciais AWS
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-east-1
