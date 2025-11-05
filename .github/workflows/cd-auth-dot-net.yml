@@ -7,10 +7,6 @@ on:
         description: "Branch que disparou o deploy"
         required: true
         type: string
-      lambda-source-dir:
-        description: "Caminho (relativo ou absoluto) para a pasta publicada da Lambda"
-        required: false
-        type: string
     secrets:
       AWS_ACCESS_KEY_ID:
         required: true
@@ -25,170 +21,8 @@ jobs:
   deploy-terraform:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve checkout ref
-        id: resolve_checkout_ref
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.PAT_TOKEN }}
-          script: |
-            const branch = process.env.BRANCH_NAME;
-            if (!branch) {
-              core.setOutput('ref', '');
-              return;
-            }
-
-            try {
-              await github.rest.repos.getBranch({
-                owner: 'vyracare',
-                repo: 'vyracare-infra-pipes-dot-net',
-                branch,
-              });
-              core.setOutput('ref', branch);
-            } catch (error) {
-              if (error.status === 404) {
-                core.info(`Branch ${branch} not found in vyracare/vyracare-infra-pipes-dot-net. Falling back to default branch.`);
-                core.setOutput('ref', '');
-              } else {
-                throw error;
-              }
-            }
-        env:
-          BRANCH_NAME: ${{ inputs.branch-name }}
-
-      - name: Checkout Infra (branch)
-        if: steps.resolve_checkout_ref.outputs.ref != ''
+      - name: Checkout Infra
         uses: actions/checkout@v4
-        with:
-          repository: vyracare/vyracare-infra-pipes-dot-net
-          ref: ${{ steps.resolve_checkout_ref.outputs.ref }}
-          token: ${{ secrets.PAT_TOKEN }}
-
-      - name: Checkout Infra (default)
-        if: steps.resolve_checkout_ref.outputs.ref == ''
-        uses: actions/checkout@v4
-        with:
-          repository: vyracare/vyracare-infra-pipes-dot-net
-          token: ${{ secrets.PAT_TOKEN }}
-
-      - name: Checkout repositório chamador
-        uses: actions/checkout@v4
-        with:
-          path: caller-repo
-
-      - name: Determinar diretório do pacote Lambda
-        shell: bash
-        env:
-          LAMBDA_SOURCE_INPUT: ${{ inputs.lambda-source-dir }}
-          CALLER_REPO_PATH: caller-repo
-        run: |
-          resolve_relative_path() {
-            local base_dir="$1"
-            local rel_path="$2"
-
-            if [[ -d "${base_dir}/${rel_path}" ]]; then
-              echo "${base_dir}/${rel_path}"
-            fi
-          }
-
-          candidate="${LAMBDA_SOURCE_INPUT}"
-
-          if [[ -n "${candidate}" ]]; then
-            if [[ "${candidate}" != /* ]]; then
-              resolved_path="$(resolve_relative_path "${GITHUB_WORKSPACE}" "${candidate}")"
-
-              if [[ -z "${resolved_path}" && -n "${CALLER_REPO_PATH}" ]]; then
-                resolved_path="$(resolve_relative_path "${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}" "${candidate}")"
-              fi
-
-              if [[ -z "${resolved_path}" ]]; then
-                echo "::error::O caminho informado em inputs.lambda-source-dir ('${candidate}') não foi encontrado nas pastas clonadas."
-                exit 1
-              fi
-
-              candidate="${resolved_path}"
-            fi
-
-            if [[ ! -d "${candidate}" ]]; then
-              echo "::error::O caminho informado em inputs.lambda-source-dir ('${candidate}') não existe."
-              exit 1
-            fi
-          else
-            config_candidate=""
-
-            if [[ -n "${CALLER_REPO_PATH}" ]]; then
-              workflow_dir="${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}/.github/workflows"
-
-              if [[ -d "${workflow_dir}" ]]; then
-                while IFS= read -r config_file; do
-                  lambda_line="$(grep -E '^[[:space:]]*lambda-source-dir:' "${config_file}" | head -n 1)"
-
-                  if [[ -n "${lambda_line}" ]]; then
-                    value_part="${lambda_line#*:}"
-                    value_part="${value_part%%#*}"
-                    value_part="$(echo "${value_part}" | tr -d '"' | tr -d "'")"
-                    value_part="$(echo "${value_part}" | xargs)"
-
-                    if [[ -n "${value_part}" ]]; then
-                      config_candidate="${value_part}"
-                      echo "Fonte do caminho da Lambda obtida de: ${config_file}"
-                      break
-                    fi
-                  fi
-                done < <(find "${workflow_dir}" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
-              fi
-            fi
-
-            if [[ -n "${config_candidate}" ]]; then
-              candidate="${config_candidate}"
-            else
-              search_paths=(
-                "${GITHUB_WORKSPACE}/backend/Vyracare.Auth/publish"
-                "${GITHUB_WORKSPACE}/publish"
-              )
-
-              if [[ -n "${CALLER_REPO_PATH}" ]]; then
-                search_paths+=(
-                  "${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}/backend/Vyracare.Auth/publish"
-                  "${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}/publish"
-                )
-              fi
-
-              for path in "${search_paths[@]}"; do
-                if [[ -d "${path}" ]]; then
-                  candidate="${path}"
-                  break
-                fi
-              done
-
-              if [[ -z "${candidate}" ]]; then
-                echo "::error::Não foi possível localizar a pasta publicada da Lambda. Informe inputs.lambda-source-dir ou garanta que o diretório de publicação exista."
-                exit 1
-              fi
-            fi
-          fi
-
-          if [[ "${candidate}" != /* ]]; then
-            resolved_path="$(resolve_relative_path "${GITHUB_WORKSPACE}" "${candidate}")"
-
-            if [[ -z "${resolved_path}" && -n "${CALLER_REPO_PATH}" ]]; then
-              resolved_path="$(resolve_relative_path "${GITHUB_WORKSPACE}/${CALLER_REPO_PATH}" "${candidate}")"
-            fi
-
-            if [[ -z "${resolved_path}" ]]; then
-              echo "::error::O caminho definido ('${candidate}') não foi encontrado nas pastas clonadas."
-              exit 1
-            fi
-
-            candidate="${resolved_path}"
-          fi
-
-          if [[ ! -d "${candidate}" ]]; then
-            echo "::error::O caminho definido ('${candidate}') não existe."
-            exit 1
-          fi
-
-          echo "Diretório do pacote Lambda: ${candidate}"
-          echo "TF_VAR_lambda_source_dir=${candidate}" >> "${GITHUB_ENV}"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -197,15 +31,15 @@ jobs:
 
       - name: Terraform Init
         run: terraform init
-        working-directory: ./infra-repo/infra
+        working-directory: ./infra
 
       - name: Terraform Plan
         run: terraform plan -out=tfplan
-        working-directory: ./infra-repo/infra
+        working-directory: ./infra
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
-        working-directory: ./infra-repo/infra
+        working-directory: ./infra
 
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
