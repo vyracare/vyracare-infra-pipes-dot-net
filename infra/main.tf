@@ -107,6 +107,11 @@ resource "aws_lambda_alias" "auth_api_live" {
   description      = "Alias para API Gateway usar a versão publicada"
   function_name    = aws_lambda_function.auth_api.function_name
   function_version = aws_lambda_function.auth_api.version
+
+  # Zera qualquer weight remanescente para permitir provisioned concurrency
+  routing_config {
+    additional_version_weights = {}
+  }
 }
 
 # Provisioned Concurrency para reduzir cold start
@@ -121,7 +126,7 @@ resource "aws_lambda_provisioned_concurrency_config" "auth_api" {
 
 
 resource "aws_lambda_permission" "apigw" {
-  statement_id  = "AllowAPIGatewayInvokeLive"
+  statement_id  = "AllowAPIGatewayInvokeLiveV2"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_alias.auth_api_live.arn
   principal     = "apigateway.amazonaws.com"
