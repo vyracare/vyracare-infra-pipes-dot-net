@@ -107,11 +107,6 @@ resource "aws_lambda_alias" "auth_api_live" {
   description      = "Alias para API Gateway usar a versão publicada"
   function_name    = aws_lambda_function.auth_api.function_name
   function_version = aws_lambda_function.auth_api.version
-
-  # Garante que não há peso em outra versão (alias weighted não aceita provisioned concurrency)
-  routing_config {
-    additional_version_weights = {}
-  }
 }
 
 # Provisioned Concurrency para reduzir cold start
@@ -119,6 +114,9 @@ resource "aws_lambda_provisioned_concurrency_config" "auth_api" {
   function_name                     = aws_lambda_function.auth_api.function_name
   qualifier                         = aws_lambda_alias.auth_api_live.name
   provisioned_concurrent_executions = var.lambda_provisioned_concurrency
+
+  # Garante ordem de aplicação: primeiro remove/atualiza alias, depois ativa provisioned concurrency
+  depends_on = [aws_lambda_alias.auth_api_live]
 }
 
 
