@@ -171,3 +171,9 @@ resource "aws_apigatewayv2_stage" "default" {
   name        = "$default"
   auto_deploy = true
 }
+
+# Importa o alias 'live' já existente para evitar ResourceConflict ao aplicar
+import {
+  to = aws_lambda_alias.auth_api_live
+  id = "${var.lambda_function_name}:live"
+}
