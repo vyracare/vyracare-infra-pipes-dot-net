@@ -107,6 +107,11 @@ resource "aws_lambda_alias" "auth_api_live" {
   description      = "Alias para API Gateway usar a versão publicada"
   function_name    = aws_lambda_function.auth_api.function_name
   function_version = aws_lambda_function.auth_api.version
+
+  # Garante que não há peso em outra versão (alias weighted não aceita provisioned concurrency)
+  routing_config {
+    additional_version_weights = {}
+  }
 }
 
 # Provisioned Concurrency para reduzir cold start
@@ -118,9 +123,9 @@ resource "aws_lambda_provisioned_concurrency_config" "auth_api" {
 
 
 resource "aws_lambda_permission" "apigw" {
-  statement_id  = "AllowAPIGatewayInvoke"
+  statement_id  = "AllowAPIGatewayInvokeLive"
   action        = "lambda:InvokeFunction"
-  function_name = "${aws_lambda_function.auth_api.function_name}:${aws_lambda_alias.auth_api_live.name}"
+  function_name = aws_lambda_alias.auth_api_live.arn
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
 }
@@ -132,7 +137,7 @@ resource "aws_lambda_permission" "apigw" {
 resource "aws_apigatewayv2_integration" "lambda_integration" {
   api_id             = aws_apigatewayv2_api.http_api.id
   integration_type   = "AWS_PROXY"
-  integration_uri    = "${aws_lambda_function.auth_api.invoke_arn}:${aws_lambda_alias.auth_api_live.name}"
+  integration_uri    = aws_lambda_alias.auth_api_live.invoke_arn
   integration_method = "POST"
 }
 
