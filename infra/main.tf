@@ -94,18 +94,33 @@ resource "aws_lambda_function" "auth_api" {
   role          = aws_iam_role.lambda_exec.arn
   handler       = "Vyracare.Auth" # apenas o nome do assembly!
   runtime       = "dotnet8"
+  memory_size   = var.lambda_memory_mb
   filename      = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
   publish = true
   timeout = 30
 }
 
+# Alias fixo para apontar o API Gateway para a versão publicada e permitir provisioned concurrency
+resource "aws_lambda_alias" "auth_api_live" {
+  name             = "live"
+  description      = "Alias para API Gateway usar a versão publicada"
+  function_name    = aws_lambda_function.auth_api.function_name
+  function_version = aws_lambda_function.auth_api.version
+}
+
+# Provisioned Concurrency para reduzir cold start
+resource "aws_lambda_provisioned_concurrency_config" "auth_api" {
+  function_name                     = aws_lambda_function.auth_api.function_name
+  qualifier                         = aws_lambda_alias.auth_api_live.name
+  provisioned_concurrent_executions = var.lambda_provisioned_concurrency
+}
 
 
 resource "aws_lambda_permission" "apigw" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.auth_api.function_name
+  function_name = "${aws_lambda_function.auth_api.function_name}:${aws_lambda_alias.auth_api_live.name}"
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
 }
@@ -117,7 +132,7 @@ resource "aws_lambda_permission" "apigw" {
 resource "aws_apigatewayv2_integration" "lambda_integration" {
   api_id             = aws_apigatewayv2_api.http_api.id
   integration_type   = "AWS_PROXY"
-  integration_uri    = aws_lambda_function.auth_api.invoke_arn
+  integration_uri    = "${aws_lambda_function.auth_api.invoke_arn}:${aws_lambda_alias.auth_api_live.name}"
   integration_method = "POST"
 }
 

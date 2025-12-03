@@ -34,3 +34,15 @@ variable "user_pool_client_id" {
 variable "user_pool_id" {
   default = "us-east-1_yZNKvAZTf"
 }
+
+variable "lambda_memory_mb" {
+  description = "Memória da Lambda em MB (aumenta CPU proporcionalmente)"
+  type        = number
+  default     = 1024
+}
+
+variable "lambda_provisioned_concurrency" {
+  description = "Quantidade de instâncias provisionadas para evitar cold start"
+  type        = number
+  default     = 2
+}
