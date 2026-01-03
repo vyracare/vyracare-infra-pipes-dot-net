@@ -42,7 +42,7 @@ variable "lambda_memory_mb" {
 }
 
 variable "lambda_provisioned_concurrency" {
-  description = "Quantidade de instâncias provisionadas para evitar cold start"
+  description = "Quantidade de instancias provisionadas (0 desabilita)"
   type        = number
-  default     = 2
+  default     = 0
 }

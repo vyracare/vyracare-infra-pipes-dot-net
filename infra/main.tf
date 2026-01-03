@@ -116,8 +116,9 @@ resource "aws_lambda_alias" "auth_api_live" {
 
 # Provisioned Concurrency para reduzir cold start
 resource "aws_lambda_provisioned_concurrency_config" "auth_api" {
+  count                            = var.lambda_provisioned_concurrency > 0 ? 1 : 0
   function_name                     = aws_lambda_function.auth_api.function_name
-  qualifier                         = aws_lambda_function.auth_api.version
+  qualifier                         = aws_lambda_alias.auth_api_live.name
   provisioned_concurrent_executions = var.lambda_provisioned_concurrency
 
   # Garante ordem de aplicação: primeiro remove/atualiza alias, depois ativa provisioned concurrency
@@ -126,9 +127,9 @@ resource "aws_lambda_provisioned_concurrency_config" "auth_api" {
 
 
 resource "aws_lambda_permission" "apigw" {
-  statement_id  = "AllowAPIGatewayInvokeLiveV2"
+  statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_alias.auth_api_live.arn
+  function_name = aws_lambda_function.auth_api.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
 }
