@@ -117,7 +117,7 @@ resource "aws_lambda_alias" "auth_api_live" {
 # Provisioned Concurrency para reduzir cold start
 resource "aws_lambda_provisioned_concurrency_config" "auth_api" {
   function_name                     = aws_lambda_function.auth_api.function_name
-  qualifier                         = aws_lambda_alias.auth_api_live.name
+  qualifier                         = aws_lambda_function.auth_api.version
   provisioned_concurrent_executions = var.lambda_provisioned_concurrency
 
   # Garante ordem de aplicação: primeiro remove/atualiza alias, depois ativa provisioned concurrency
