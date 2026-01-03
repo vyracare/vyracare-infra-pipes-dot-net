@@ -8,6 +8,15 @@ variable "env_suffix" {
   default = "dev"
 }
 
+variable "cors_allow_origins" {
+  description = "Allowed origins for API Gateway CORS"
+  type        = list(string)
+  default     = [
+    "https://d5dc8345c7ow0.cloudfront.net",
+    "http://localhost:4200"
+  ]
+}
+
 variable "api_id" {
   default = "e5sydc9xvc"
 }

@@ -40,6 +40,20 @@ resource "aws_cognito_user_pool_client" "app_client" {
 resource "aws_apigatewayv2_api" "http_api" {
   name          = "vyracare-api-${var.env_suffix}"
   protocol_type = "HTTP"
+
+  cors_configuration {
+    allow_origins = var.cors_allow_origins
+    allow_methods = ["OPTIONS", "GET", "POST", "PUT", "PATCH", "DELETE"]
+    allow_headers = [
+      "authorization",
+      "content-type",
+      "x-amz-date",
+      "x-api-key",
+      "x-amz-security-token",
+      "x-amz-user-agent"
+    ]
+    max_age = 3600
+  }
 }
 
 # ------------------------------
