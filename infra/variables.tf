@@ -9,12 +9,9 @@ variable "env_suffix" {
 }
 
 variable "cors_allow_origins" {
-  description = "Allowed origins for API Gateway CORS"
+  description = "Allowed origins for API Gateway CORS (use * to allow all)"
   type        = list(string)
-  default     = [
-    "https://d5dc8345c7ow0.cloudfront.net",
-    "http://localhost:4200"
-  ]
+  default     = ["*"]
 }
 
 variable "api_id" {
