@@ -186,6 +186,18 @@ resource "aws_apigatewayv2_route" "auth_register" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
 }
 
+resource "aws_apigatewayv2_route" "auth_first_access_check" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "POST /api/auth/first-access/check"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+}
+
+resource "aws_apigatewayv2_route" "auth_first_access_set_password" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "POST /api/auth/first-access/set-password"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+}
+
 # ------------------------------
 # Stage
 # ------------------------------
