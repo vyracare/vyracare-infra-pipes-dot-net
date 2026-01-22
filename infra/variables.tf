@@ -40,11 +40,11 @@ variable "user_pool_client_id" {
 variable "user_pool_id" {
   default = "us-east-1_yZNKvAZTf"
 }
-
-variable "jwt_authorizer_id" {
-  description = "ID do authorizer existente no API Gateway (para import)"
-  type        = string
-  default     = "vfvi88"
+
+variable "prevent_destroy_logs" {
+  description = "Controla se o log group pode ser destruido pelo Terraform"
+  type        = bool
+  default     = true
 }
 variable "lambda_memory_mb" {
   description = "Memória da Lambda em MB (aumenta CPU proporcionalmente)"

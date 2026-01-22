@@ -97,7 +97,7 @@ resource "aws_cloudwatch_log_group" "lambda_logs" {
   }
 
   lifecycle {
-    prevent_destroy = true   # não apaga os logs existentes
+    prevent_destroy = var.prevent_destroy_logs   # não apaga os logs existentes
     ignore_changes  = [retention_in_days] # evita recriação por mudança de retenção
   }
 }
@@ -139,6 +139,7 @@ resource "aws_lambda_permission" "apigw" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.auth_api.function_name
+  qualifier     = aws_lambda_alias.auth_api_live.name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
 }
@@ -208,13 +209,4 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 }
 
-# Importa o alias 'live' já existente para evitar ResourceConflict ao aplicar
-import {
-  to = aws_lambda_alias.auth_api_live
-  id = "${var.lambda_function_name}/live"
-}
 
-import {
-  to = aws_apigatewayv2_authorizer.jwt
-  id = "${aws_apigatewayv2_api.http_api.id}/${var.jwt_authorizer_id}"
-}

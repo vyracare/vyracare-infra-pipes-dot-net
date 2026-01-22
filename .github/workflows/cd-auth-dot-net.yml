@@ -20,6 +20,11 @@ on:
         required: false
         default: backend-publish
         type: string
+      recreate-infra:
+        description: "Destruir e recriar a arquitetura de API Gateway e Lambda antes do deploy"
+        required: false
+        default: false
+        type: boolean
     secrets:
       AWS_ACCESS_KEY_ID: { required: true }
       AWS_SECRET_ACCESS_KEY: { required: true }
@@ -117,6 +122,23 @@ jobs:
       - name: Terraform Init
         working-directory: ./infra-repo/infra
         run: terraform init
+      - name: Terraform Destroy (Gateway + Lambda)
+        if: ${{ inputs.recreate-infra }}
+        working-directory: ./infra-repo/infra
+        env:
+          TF_VAR_prevent_destroy_logs: "false"
+        run: |
+          targets=$(terraform state list | grep -E '^(aws_apigatewayv2_|aws_lambda_|aws_cloudwatch_log_group\\.lambda_logs$|aws_iam_role\\.lambda_exec$|aws_iam_role_policy_attachment\\.lambda_logs$)' || true)
+          if [ -z "$targets" ]; then
+            echo "No gateway/lambda resources found in state."
+            exit 0
+          fi
+          args=()
+          while read -r t; do
+            args+=("-target=$t")
+          done <<< "$targets"
+          terraform destroy -auto-approve "${args[@]}"
+
 
       - name: Terraform Plan
         working-directory: ./infra-repo/infra
