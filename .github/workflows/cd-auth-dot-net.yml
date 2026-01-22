@@ -122,6 +122,60 @@ jobs:
       - name: Terraform Init
         working-directory: ./infra-repo/infra
         run: terraform init
+
+      - name: Import API Gateway resources (existing)
+        working-directory: ./infra-repo/infra
+        run: |
+          set -euo pipefail
+
+          api_id="${TF_VAR_api_id:-}"
+          if [ -z "$api_id" ]; then
+            env_suffix="${TF_VAR_env_suffix:-dev}"
+            api_name="vyracare-api-${env_suffix}"
+            api_id=$(aws apigatewayv2 get-apis --query "Items[?Name=='${api_name}'].ApiId | [0]" --output text)
+          fi
+
+          if [ -z "$api_id" ] || [ "$api_id" = "None" ]; then
+            echo "API Gateway not found; skipping imports."
+            exit 0
+          fi
+
+          echo "TF_VAR_api_id=${api_id}" >> $GITHUB_ENV
+
+          import_if_missing() {
+            local addr="$1"
+            local id="$2"
+            if terraform state list | grep -qx "$addr"; then
+              echo "State already has $addr"
+              return 0
+            fi
+            terraform import "$addr" "$id"
+          }
+
+          import_if_missing "aws_apigatewayv2_api.http_api" "$api_id"
+
+          authorizer_id=$(aws apigatewayv2 get-authorizers --api-id "$api_id" --query "Items[?Name=='jwt-authorizer'].AuthorizerId | [0]" --output text)
+          if [ -n "$authorizer_id" ] && [ "$authorizer_id" != "None" ]; then
+            import_if_missing "aws_apigatewayv2_authorizer.jwt" "${api_id}/${authorizer_id}"
+          fi
+
+          import_if_missing "aws_apigatewayv2_stage.default" "${api_id}/\$default"
+
+          declare -A route_keys=(
+            [auth_login]="POST /api/auth/login"
+            [auth_register]="POST /api/auth/register"
+            [auth_first_access_check]="POST /api/auth/first-access/check"
+            [auth_first_access_set_password]="POST /api/auth/first-access/set-password"
+            [auth_forgot_password]="POST /api/auth/forgot-password"
+          )
+
+          for name in "${!route_keys[@]}"; do
+            route_key="${route_keys[$name]}"
+            route_id=$(aws apigatewayv2 get-routes --api-id "$api_id" --query "Items[?RouteKey=='${route_key}'].RouteId | [0]" --output text)
+            if [ -n "$route_id" ] && [ "$route_id" != "None" ]; then
+              import_if_missing "aws_apigatewayv2_route.${name}" "${api_id}/${route_id}"
+            fi
+          done
       - name: Terraform Destroy (Gateway + Lambda)
         if: ${{ inputs.recreate-infra }}
         working-directory: ./infra-repo/infra
