@@ -15,7 +15,8 @@ variable "cors_allow_origins" {
 }
 
 variable "api_id" {
-  default = "e5sydc9xvc"
+  description = "Existing API Gateway ID to reuse"
+  default     = "9t2mw7tno9"
 }
 
 variable "lambda_function_name" {

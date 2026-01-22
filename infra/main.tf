@@ -56,6 +56,11 @@ resource "aws_apigatewayv2_api" "http_api" {
   }
 }
 
+import {
+  to = aws_apigatewayv2_api.http_api
+  id = var.api_id
+}
+
 # ------------------------------
 # Lambda Function
 # ------------------------------
@@ -208,5 +213,4 @@ resource "aws_apigatewayv2_stage" "default" {
   name        = "$default"
   auto_deploy = true
 }
-
 
