@@ -121,11 +121,6 @@ resource "aws_lambda_alias" "auth_api_live" {
   description      = "Alias para API Gateway usar a versão publicada"
   function_name    = aws_lambda_function.auth_api.function_name
   function_version = aws_lambda_function.auth_api.version
-
-  # Zera qualquer weight remanescente para permitir provisioned concurrency
-  routing_config {
-    additional_version_weights = {}
-  }
 }
 
 # Provisioned Concurrency para reduzir cold start
@@ -217,4 +212,9 @@ resource "aws_apigatewayv2_stage" "default" {
 import {
   to = aws_lambda_alias.auth_api_live
   id = "${var.lambda_function_name}/live"
+}
+
+import {
+  to = aws_apigatewayv2_authorizer.jwt
+  id = "${aws_apigatewayv2_api.http_api.id}/${var.jwt_authorizer_id}"
 }
