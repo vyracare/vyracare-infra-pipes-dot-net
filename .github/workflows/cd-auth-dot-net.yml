@@ -25,6 +25,41 @@ on:
         required: false
         default: false
         type: boolean
+      api-id:
+        description: "API Gateway ID existente para reutilizar"
+        required: false
+        default: ""
+        type: string
+      authorizer-id:
+        description: "Authorizer ID existente (jwt-authorizer)"
+        required: false
+        default: ""
+        type: string
+      route-id-auth-login:
+        description: "Route ID existente para POST /api/auth/login"
+        required: false
+        default: ""
+        type: string
+      route-id-auth-register:
+        description: "Route ID existente para POST /api/auth/register"
+        required: false
+        default: ""
+        type: string
+      route-id-auth-first-access-check:
+        description: "Route ID existente para POST /api/auth/first-access/check"
+        required: false
+        default: ""
+        type: string
+      route-id-auth-first-access-set-password:
+        description: "Route ID existente para POST /api/auth/first-access/set-password"
+        required: false
+        default: ""
+        type: string
+      route-id-auth-forgot-password:
+        description: "Route ID existente para POST /api/auth/forgot-password"
+        required: false
+        default: ""
+        type: string
     secrets:
       AWS_ACCESS_KEY_ID: { required: true }
       AWS_SECRET_ACCESS_KEY: { required: true }
@@ -114,6 +149,31 @@ jobs:
       - name: Export publish dir to TF_VAR
         run: echo "TF_VAR_lambda_source_dir=${GITHUB_WORKSPACE}/${{ inputs['output-dir'] }}" >> $GITHUB_ENV
 
+      - name: Export API Gateway IDs to TF_VAR
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs['api-id'] }}" ]; then
+            echo "TF_VAR_api_id=${{ inputs['api-id'] }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ inputs['authorizer-id'] }}" ]; then
+            echo "TF_VAR_authorizer_id=${{ inputs['authorizer-id'] }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ inputs['route-id-auth-login'] }}" ]; then
+            echo "TF_VAR_route_id_auth_login=${{ inputs['route-id-auth-login'] }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ inputs['route-id-auth-register'] }}" ]; then
+            echo "TF_VAR_route_id_auth_register=${{ inputs['route-id-auth-register'] }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ inputs['route-id-auth-first-access-check'] }}" ]; then
+            echo "TF_VAR_route_id_auth_first_access_check=${{ inputs['route-id-auth-first-access-check'] }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ inputs['route-id-auth-first-access-set-password'] }}" ]; then
+            echo "TF_VAR_route_id_auth_first_access_set_password=${{ inputs['route-id-auth-first-access-set-password'] }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ inputs['route-id-auth-forgot-password'] }}" ]; then
+            echo "TF_VAR_route_id_auth_forgot_password=${{ inputs['route-id-auth-forgot-password'] }}" >> $GITHUB_ENV
+          fi
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -123,59 +183,6 @@ jobs:
         working-directory: ./infra-repo/infra
         run: terraform init
 
-      - name: Import API Gateway resources (existing)
-        working-directory: ./infra-repo/infra
-        run: |
-          set -euo pipefail
-
-          api_id="${TF_VAR_api_id:-}"
-          if [ -z "$api_id" ]; then
-            env_suffix="${TF_VAR_env_suffix:-dev}"
-            api_name="vyracare-api-${env_suffix}"
-            api_id=$(aws apigatewayv2 get-apis --query "Items[?Name=='${api_name}'].ApiId | [0]" --output text)
-          fi
-
-          if [ -z "$api_id" ] || [ "$api_id" = "None" ]; then
-            echo "API Gateway not found; skipping imports."
-            exit 0
-          fi
-
-          echo "TF_VAR_api_id=${api_id}" >> $GITHUB_ENV
-
-          import_if_missing() {
-            local addr="$1"
-            local id="$2"
-            if terraform state list | grep -qx "$addr"; then
-              echo "State already has $addr"
-              return 0
-            fi
-            terraform import "$addr" "$id"
-          }
-
-          import_if_missing "aws_apigatewayv2_api.http_api" "$api_id"
-
-          authorizer_id=$(aws apigatewayv2 get-authorizers --api-id "$api_id" --query "Items[?Name=='jwt-authorizer'].AuthorizerId | [0]" --output text)
-          if [ -n "$authorizer_id" ] && [ "$authorizer_id" != "None" ]; then
-            import_if_missing "aws_apigatewayv2_authorizer.jwt" "${api_id}/${authorizer_id}"
-          fi
-
-          import_if_missing "aws_apigatewayv2_stage.default" "${api_id}/\$default"
-
-          declare -A route_keys=(
-            [auth_login]="POST /api/auth/login"
-            [auth_register]="POST /api/auth/register"
-            [auth_first_access_check]="POST /api/auth/first-access/check"
-            [auth_first_access_set_password]="POST /api/auth/first-access/set-password"
-            [auth_forgot_password]="POST /api/auth/forgot-password"
-          )
-
-          for name in "${!route_keys[@]}"; do
-            route_key="${route_keys[$name]}"
-            route_id=$(aws apigatewayv2 get-routes --api-id "$api_id" --query "Items[?RouteKey=='${route_key}'].RouteId | [0]" --output text)
-            if [ -n "$route_id" ] && [ "$route_id" != "None" ]; then
-              import_if_missing "aws_apigatewayv2_route.${name}" "${api_id}/${route_id}"
-            fi
-          done
       - name: Terraform Destroy (Gateway + Lambda)
         if: ${{ inputs.recreate-infra }}
         working-directory: ./infra-repo/infra

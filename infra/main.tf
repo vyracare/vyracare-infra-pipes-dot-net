@@ -214,3 +214,38 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 }
 
+import {
+  to = aws_apigatewayv2_authorizer.jwt
+  id = format("%s/%s", var.api_id, var.authorizer_id)
+}
+
+import {
+  to = aws_apigatewayv2_route.auth_login
+  id = format("%s/%s", var.api_id, var.route_id_auth_login)
+}
+
+import {
+  to = aws_apigatewayv2_route.auth_register
+  id = format("%s/%s", var.api_id, var.route_id_auth_register)
+}
+
+import {
+  to = aws_apigatewayv2_route.auth_first_access_check
+  id = format("%s/%s", var.api_id, var.route_id_auth_first_access_check)
+}
+
+import {
+  to = aws_apigatewayv2_route.auth_first_access_set_password
+  id = format("%s/%s", var.api_id, var.route_id_auth_first_access_set_password)
+}
+
+import {
+  to = aws_apigatewayv2_route.auth_forgot_password
+  id = format("%s/%s", var.api_id, var.route_id_auth_forgot_password)
+}
+
+import {
+  to = aws_apigatewayv2_stage.default
+  id = format("%s/$default", var.api_id)
+}
+

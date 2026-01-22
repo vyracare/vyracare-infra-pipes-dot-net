@@ -19,6 +19,42 @@ variable "api_id" {
   default     = "9t2mw7tno9"
 }
 
+variable "authorizer_id" {
+  description = "Existing API Gateway authorizer id for jwt-authorizer"
+  type        = string
+  default     = "ybcgn2"
+}
+
+variable "route_id_auth_login" {
+  description = "Existing route id for POST /api/auth/login"
+  type        = string
+  default     = "zu799q8"
+}
+
+variable "route_id_auth_register" {
+  description = "Existing route id for POST /api/auth/register"
+  type        = string
+  default     = "zycxv1m"
+}
+
+variable "route_id_auth_first_access_check" {
+  description = "Existing route id for POST /api/auth/first-access/check"
+  type        = string
+  default     = "om3xvqs"
+}
+
+variable "route_id_auth_first_access_set_password" {
+  description = "Existing route id for POST /api/auth/first-access/set-password"
+  type        = string
+  default     = "1pcuvk4"
+}
+
+variable "route_id_auth_forgot_password" {
+  description = "Existing route id for POST /api/auth/forgot-password"
+  type        = string
+  default     = "iz6zzl9"
+}
+
 variable "lambda_function_name" {
   default = "vyracare-auth-dev"
 }
