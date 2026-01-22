@@ -1,10 +1,10 @@
 variable "region" {
-  type = string
+  type    = string
   default = "us-east-1"
 }
 
 variable "env_suffix" {
-  type = string
+  type    = string
   default = "dev"
 }
 
@@ -40,20 +40,15 @@ variable "user_pool_client_id" {
 variable "user_pool_id" {
   default = "us-east-1_yZNKvAZTf"
 }
-
-variable "prevent_destroy_logs" {
-  description = "Controla se o log group pode ser destruido pelo Terraform"
-  type        = bool
-  default     = true
-}
+
 variable "lambda_memory_mb" {
-  description = "Memória da Lambda em MB (aumenta CPU proporcionalmente)"
+  description = "Lambda memory in MB (increases CPU proportionally)"
   type        = number
   default     = 1024
 }
 
 variable "lambda_provisioned_concurrency" {
-  description = "Quantidade de instancias provisionadas (0 desabilita)"
+  description = "Provisioned concurrency (0 disables)"
   type        = number
   default     = 0
 }

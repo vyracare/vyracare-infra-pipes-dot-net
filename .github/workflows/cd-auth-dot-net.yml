@@ -125,8 +125,6 @@ jobs:
       - name: Terraform Destroy (Gateway + Lambda)
         if: ${{ inputs.recreate-infra }}
         working-directory: ./infra-repo/infra
-        env:
-          TF_VAR_prevent_destroy_logs: "false"
         run: |
           targets=$(terraform state list | grep -E '^(aws_apigatewayv2_|aws_lambda_|aws_cloudwatch_log_group\\.lambda_logs$|aws_iam_role\\.lambda_exec$|aws_iam_role_policy_attachment\\.lambda_logs$)' || true)
           if [ -z "$targets" ]; then

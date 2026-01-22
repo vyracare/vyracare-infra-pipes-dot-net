@@ -97,7 +97,7 @@ resource "aws_cloudwatch_log_group" "lambda_logs" {
   }
 
   lifecycle {
-    prevent_destroy = var.prevent_destroy_logs   # não apaga os logs existentes
+    prevent_destroy = false   # permite destruir logs quando necessario
     ignore_changes  = [retention_in_days] # evita recriação por mudança de retenção
   }
 }
