@@ -198,6 +198,12 @@ resource "aws_apigatewayv2_route" "auth_first_access_set_password" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
 }
 
+resource "aws_apigatewayv2_route" "auth_forgot_password" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "POST /api/auth/forgot-password"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+}
+
 # ------------------------------
 # Stage
 # ------------------------------
