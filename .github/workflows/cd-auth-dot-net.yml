@@ -20,46 +20,6 @@ on:
         required: false
         default: backend-publish
         type: string
-      recreate-infra:
-        description: "Destruir e recriar a arquitetura de API Gateway e Lambda antes do deploy"
-        required: false
-        default: false
-        type: boolean
-      api-id:
-        description: "API Gateway ID existente para reutilizar"
-        required: false
-        default: ""
-        type: string
-      authorizer-id:
-        description: "Authorizer ID existente (jwt-authorizer)"
-        required: false
-        default: ""
-        type: string
-      route-id-auth-login:
-        description: "Route ID existente para POST /api/auth/login"
-        required: false
-        default: ""
-        type: string
-      route-id-auth-register:
-        description: "Route ID existente para POST /api/auth/register"
-        required: false
-        default: ""
-        type: string
-      route-id-auth-first-access-check:
-        description: "Route ID existente para POST /api/auth/first-access/check"
-        required: false
-        default: ""
-        type: string
-      route-id-auth-first-access-set-password:
-        description: "Route ID existente para POST /api/auth/first-access/set-password"
-        required: false
-        default: ""
-        type: string
-      route-id-auth-forgot-password:
-        description: "Route ID existente para POST /api/auth/forgot-password"
-        required: false
-        default: ""
-        type: string
     secrets:
       AWS_ACCESS_KEY_ID: { required: true }
       AWS_SECRET_ACCESS_KEY: { required: true }
@@ -149,30 +109,6 @@ jobs:
       - name: Export publish dir to TF_VAR
         run: echo "TF_VAR_lambda_source_dir=${GITHUB_WORKSPACE}/${{ inputs['output-dir'] }}" >> $GITHUB_ENV
 
-      - name: Export API Gateway IDs to TF_VAR
-        run: |
-          set -euo pipefail
-          if [ -n "${{ inputs['api-id'] }}" ]; then
-            echo "TF_VAR_api_id=${{ inputs['api-id'] }}" >> $GITHUB_ENV
-          fi
-          if [ -n "${{ inputs['authorizer-id'] }}" ]; then
-            echo "TF_VAR_authorizer_id=${{ inputs['authorizer-id'] }}" >> $GITHUB_ENV
-          fi
-          if [ -n "${{ inputs['route-id-auth-login'] }}" ]; then
-            echo "TF_VAR_route_id_auth_login=${{ inputs['route-id-auth-login'] }}" >> $GITHUB_ENV
-          fi
-          if [ -n "${{ inputs['route-id-auth-register'] }}" ]; then
-            echo "TF_VAR_route_id_auth_register=${{ inputs['route-id-auth-register'] }}" >> $GITHUB_ENV
-          fi
-          if [ -n "${{ inputs['route-id-auth-first-access-check'] }}" ]; then
-            echo "TF_VAR_route_id_auth_first_access_check=${{ inputs['route-id-auth-first-access-check'] }}" >> $GITHUB_ENV
-          fi
-          if [ -n "${{ inputs['route-id-auth-first-access-set-password'] }}" ]; then
-            echo "TF_VAR_route_id_auth_first_access_set_password=${{ inputs['route-id-auth-first-access-set-password'] }}" >> $GITHUB_ENV
-          fi
-          if [ -n "${{ inputs['route-id-auth-forgot-password'] }}" ]; then
-            echo "TF_VAR_route_id_auth_forgot_password=${{ inputs['route-id-auth-forgot-password'] }}" >> $GITHUB_ENV
-          fi
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -183,8 +119,55 @@ jobs:
         working-directory: ./infra-repo/infra
         run: terraform init
 
+      - name: Detect existing infra and prepare destroy
+        working-directory: ./infra-repo/infra
+        run: |
+          set -euo pipefail
+
+          destroy_needed="false"
+          state_list="$(terraform state list 2>/dev/null || true)"
+          state_has() {
+            echo "$state_list" | grep -qx "$1"
+          }
+          api_name="vyracare-api-${TF_VAR_env_suffix:-dev}"
+          api_id=$(aws apigatewayv2 get-apis --query "Items[?Name=='${api_name}'].ApiId | [0]" --output text)
+
+          if [ -n "$api_id" ] && [ "$api_id" != "None" ]; then
+            destroy_needed="true"
+            if ! state_has "aws_apigatewayv2_api.http_api"; then
+              terraform import aws_apigatewayv2_api.http_api "$api_id" || true
+            fi
+          fi
+
+          lambda_name="${TF_VAR_lambda_function_name:-vyracare-auth-dev}"
+          if aws lambda get-function --function-name "$lambda_name" >/dev/null 2>&1; then
+            destroy_needed="true"
+            if ! state_has "aws_lambda_function.auth_api"; then
+              terraform import aws_lambda_function.auth_api "$lambda_name" || true
+            fi
+            if aws lambda get-alias --function-name "$lambda_name" --name "live" >/dev/null 2>&1; then
+              if ! state_has "aws_lambda_alias.auth_api_live"; then
+                terraform import aws_lambda_alias.auth_api_live "$lambda_name/live" || true
+              fi
+            fi
+          fi
+
+          log_group_name="/aws/lambda/${lambda_name}"
+          if aws logs describe-log-groups --log-group-name-prefix "$log_group_name" --query "logGroups[?logGroupName=='${log_group_name}'].logGroupName | [0]" --output text | grep -qx "$log_group_name"; then
+            destroy_needed="true"
+            if ! state_has "aws_cloudwatch_log_group.lambda_logs"; then
+              terraform import aws_cloudwatch_log_group.lambda_logs "$log_group_name" || true
+            fi
+          fi
+
+          if [ "$destroy_needed" = "true" ]; then
+            echo "DESTROY_INFRA=true" >> $GITHUB_ENV
+          else
+            echo "DESTROY_INFRA=false" >> $GITHUB_ENV
+          fi
+
       - name: Terraform Destroy (Gateway + Lambda)
-        if: ${{ inputs.recreate-infra }}
+        if: env.DESTROY_INFRA == 'true'
         working-directory: ./infra-repo/infra
         run: |
           targets=$(terraform state list | grep -E '^(aws_apigatewayv2_|aws_lambda_|aws_cloudwatch_log_group\\.lambda_logs$|aws_iam_role\\.lambda_exec$|aws_iam_role_policy_attachment\\.lambda_logs$)' || true)
@@ -206,3 +189,169 @@ jobs:
       - name: Terraform Apply
         working-directory: ./infra-repo/infra
         run: terraform apply -auto-approve tfplan
+
+      - name: Export API Gateway URL
+        working-directory: ./infra-repo/infra
+        run: |
+          set -euo pipefail
+          api_url=$(terraform output -raw api_gateway_url)
+          api_id=$(echo "$api_url" | sed -E 's#https://([^.]*)\\.execute-api\\..*#\\1#')
+          echo "API_GATEWAY_URL=$api_url" >> $GITHUB_ENV
+          echo "API_GATEWAY_ID=$api_id" >> $GITHUB_ENV
+
+      - name: Resolve app-shell ref
+        id: resolve_app_shell_ref
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const branch = process.env.BRANCH_NAME;
+            if (!branch) {
+              core.setOutput('ref', '');
+              return;
+            }
+            try {
+              await github.rest.repos.getBranch({
+                owner: 'vyracare',
+                repo: 'vyracare-app-shell',
+                branch,
+              });
+              core.setOutput('ref', branch);
+            } catch (error) {
+              if (error.status === 404) {
+                core.info(`Branch ${branch} not found in vyracare/vyracare-app-shell. Falling back to default branch.`);
+                core.setOutput('ref', '');
+              } else {
+                throw error;
+              }
+            }
+        env:
+          BRANCH_NAME: ${{ inputs['branch-name'] }}
+
+      - name: Checkout App Shell (branch)
+        if: steps.resolve_app_shell_ref.outputs.ref != ''
+        uses: actions/checkout@v4
+        with:
+          repository: vyracare/vyracare-app-shell
+          ref: ${{ steps.resolve_app_shell_ref.outputs.ref }}
+          token: ${{ secrets.PAT_TOKEN }}
+          path: app-shell
+
+      - name: Checkout App Shell (default)
+        if: steps.resolve_app_shell_ref.outputs.ref == ''
+        uses: actions/checkout@v4
+        with:
+          repository: vyracare/vyracare-app-shell
+          token: ${{ secrets.PAT_TOKEN }}
+          path: app-shell
+
+      - name: Resolve app-user-mfe ref
+        id: resolve_app_user_ref
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const branch = process.env.BRANCH_NAME;
+            if (!branch) {
+              core.setOutput('ref', '');
+              return;
+            }
+            try {
+              await github.rest.repos.getBranch({
+                owner: 'vyracare',
+                repo: 'vyracare-app-user-mfe',
+                branch,
+              });
+              core.setOutput('ref', branch);
+            } catch (error) {
+              if (error.status === 404) {
+                core.info(`Branch ${branch} not found in vyracare/vyracare-app-user-mfe. Falling back to default branch.`);
+                core.setOutput('ref', '');
+              } else {
+                throw error;
+              }
+            }
+        env:
+          BRANCH_NAME: ${{ inputs['branch-name'] }}
+
+      - name: Checkout App User MFE (branch)
+        if: steps.resolve_app_user_ref.outputs.ref != ''
+        uses: actions/checkout@v4
+        with:
+          repository: vyracare/vyracare-app-user-mfe
+          ref: ${{ steps.resolve_app_user_ref.outputs.ref }}
+          token: ${{ secrets.PAT_TOKEN }}
+          path: app-user-mfe
+
+      - name: Checkout App User MFE (default)
+        if: steps.resolve_app_user_ref.outputs.ref == ''
+        uses: actions/checkout@v4
+        with:
+          repository: vyracare/vyracare-app-user-mfe
+          token: ${{ secrets.PAT_TOKEN }}
+          path: app-user-mfe
+
+      - name: Update App Shell apiUrl
+        working-directory: ./app-shell
+        run: |
+          set -euo pipefail
+          api_url="${API_GATEWAY_URL}/api/auth"
+          api_id="${API_GATEWAY_ID}"
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/api/auth"
+          api_id = os.environ["API_GATEWAY_ID"]
+
+          def update(path: str) -> None:
+            p = Path(path)
+            if not p.exists():
+              return
+            text = p.read_text()
+            text = re.sub(r"apiUrl:\\s*'[^']*'", f"apiUrl: '{api_url}'", text)
+            text = re.sub(r'api_id:\\s*\"[^\"]*\"', f'api_id: \"{api_id}\"', text)
+            p.write_text(text)
+
+          update("src/environments/environments.ts")
+          update("src/environments/environments.prod.ts")
+          PY
+
+          if git status --porcelain | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/environments/environments.ts src/environments/environments.prod.ts
+            git commit -m "chore: update auth api url"
+            git push
+          else
+            echo "App Shell already up to date."
+          fi
+
+      - name: Update App User MFE apiUrl
+        working-directory: ./app-user-mfe
+        run: |
+          set -euo pipefail
+          api_url="${API_GATEWAY_URL}/api/auth"
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/api/auth"
+          p = Path("src/environments/environments.ts")
+          if p.exists():
+            text = p.read_text()
+            text = re.sub(r"apiUrl:\\s*'[^']*'", f"apiUrl: '{api_url}'", text)
+            p.write_text(text)
+          PY
+
+          if git status --porcelain | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/environments/environments.ts
+            git commit -m "chore: update auth api url"
+            git push
+          else
+            echo "App User MFE already up to date."
+          fi
