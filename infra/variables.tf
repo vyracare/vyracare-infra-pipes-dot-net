@@ -16,7 +16,7 @@ variable "cors_allow_origins" {
 
 variable "api_id" {
   description = "Existing API Gateway ID to reuse"
-  default     = "9t2mw7tno9"
+  default     = "ef39m2gyya"
 }
 
 variable "authorizer_id" {
