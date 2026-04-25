@@ -143,6 +143,100 @@ jobs:
         working-directory: ./infra-repo/${{ inputs['infra-directory'] }}
         run: terraform init
 
+      - name: Importar infraestrutura existente para o state
+        working-directory: ./infra-repo/${{ inputs['infra-directory'] }}
+        run: |
+          set -euo pipefail
+
+          state_list="$(terraform state list 2>/dev/null || true)"
+
+          state_has() {
+            echo "$state_list" | grep -qx "$1"
+          }
+
+          import_if_missing() {
+            local address="$1"
+            local import_id="$2"
+
+            if [ -z "$import_id" ] || [ "$import_id" = "None" ]; then
+              return
+            fi
+
+            if state_has "$address"; then
+              return
+            fi
+
+            terraform import "$address" "$import_id" || true
+          }
+
+          import_route_if_exists() {
+            local address="$1"
+            local route_key="$2"
+            local route_id
+
+            route_id=$(aws apigatewayv2 get-routes \
+              --api-id "$api_id" \
+              --query "Items[?RouteKey=='$route_key'] | [0].RouteId" \
+              --output text)
+
+            if [ -n "$route_id" ] && [ "$route_id" != "None" ]; then
+              import_if_missing "$address" "$api_id/$route_id"
+            fi
+          }
+
+          env_suffix="${TF_VAR_env_suffix:-dev}"
+          api_name="${{ inputs['api-gateway-name'] }}-${env_suffix}"
+          lambda_name="${{ inputs['lambda-function-name'] }}"
+          role_name="${lambda_name}-exec"
+          policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+          if aws iam get-role --role-name "$role_name" >/dev/null 2>&1; then
+            import_if_missing aws_iam_role.lambda_exec "$role_name"
+            import_if_missing aws_iam_role_policy_attachment.lambda_logs "$role_name/$policy_arn"
+          fi
+
+          if aws lambda get-function --function-name "$lambda_name" >/dev/null 2>&1; then
+            import_if_missing aws_lambda_function.backend_api "$lambda_name"
+
+            if aws lambda get-alias --function-name "$lambda_name" --name "live" >/dev/null 2>&1; then
+              import_if_missing aws_lambda_alias.backend_api_live "$lambda_name/live"
+            fi
+          fi
+
+          log_group_name="/aws/lambda/${lambda_name}"
+          log_group_exists=$(aws logs describe-log-groups \
+            --log-group-name-prefix "$log_group_name" \
+            --query "logGroups[?logGroupName=='${log_group_name}'].logGroupName | [0]" \
+            --output text)
+
+          if [ "$log_group_exists" = "$log_group_name" ]; then
+            import_if_missing aws_cloudwatch_log_group.lambda_logs "$log_group_name"
+          fi
+
+          api_id=$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='${api_name}'] | [0].ApiId" \
+            --output text)
+
+          if [ -n "$api_id" ] && [ "$api_id" != "None" ]; then
+            import_if_missing aws_apigatewayv2_api.http_api "$api_id"
+            import_if_missing aws_apigatewayv2_stage.default "$api_id/\$default"
+
+            integration_id=$(aws apigatewayv2 get-integrations \
+              --api-id "$api_id" \
+              --query "Items[0].IntegrationId" \
+              --output text)
+
+            if [ -n "$integration_id" ] && [ "$integration_id" != "None" ]; then
+              import_if_missing aws_apigatewayv2_integration.lambda_integration "$api_id/$integration_id"
+            fi
+
+            import_route_if_exists aws_apigatewayv2_route.api_root "ANY /${{ inputs['route-base-path'] }}"
+            import_route_if_exists aws_apigatewayv2_route.api_proxy "ANY /${{ inputs['route-base-path'] }}/{proxy+}"
+            import_route_if_exists aws_apigatewayv2_route.swagger_root "ANY /swagger"
+            import_route_if_exists aws_apigatewayv2_route.swagger_proxy "ANY /swagger/{proxy+}"
+            import_route_if_exists aws_apigatewayv2_route.health "GET /health"
+          fi
+
       - name: Terraform Plan
         working-directory: ./infra-repo/${{ inputs['infra-directory'] }}
         run: terraform plan -out=tfplan

@@ -102,7 +102,7 @@ resource "aws_lambda_provisioned_concurrency_config" "backend_api" {
 }
 
 resource "aws_lambda_permission" "apigw" {
-  statement_id  = "AllowAPIGatewayInvoke"
+  statement_id_prefix = "AllowAPIGatewayInvoke-"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.backend_api.function_name
   qualifier     = aws_lambda_alias.backend_api_live.name
