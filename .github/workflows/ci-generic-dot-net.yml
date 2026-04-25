@@ -1,0 +1,54 @@
+name: CI - Generic - Build .NET
+
+on:
+  workflow_call:
+    inputs:
+      branch-name:
+        description: "Branch que disparou o build"
+        required: true
+        type: string
+      project-path:
+        description: "Caminho do .csproj relativo à raiz do repositório"
+        required: false
+        default: "*.csproj"
+        type: string
+      output-dir:
+        description: "Diretório de saída do publish"
+        required: false
+        default: "./publish"
+        type: string
+    secrets:
+      PAT_TOKEN:
+        required: true
+
+jobs:
+  build-dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Backend
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch-name }}
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: List .NET Projects
+        run: ls -la *.csproj || echo "Nenhum .csproj encontrado"
+
+      - name: Restore
+        run: dotnet restore ${{ inputs.project-path }}
+
+      - name: Build
+        run: dotnet build ${{ inputs.project-path }} -c Release --no-restore
+
+      - name: Publish
+        run: dotnet publish ${{ inputs.project-path }} -c Release -r linux-x64 --self-contained false -o ${{ inputs.output-dir }}
+
+      - name: Zip Lambda
+        run: |
+          cd ${{ inputs.output-dir }}
+          zip -r ../lambda.zip .

@@ -1,0 +1,159 @@
+name: CD - Generic - Deploy Terraform
+
+on:
+  workflow_call:
+    inputs:
+      branch-name:
+        description: "Branch do backend que disparou o deploy"
+        required: true
+        type: string
+      backend-repo:
+        description: "owner/repo do backend"
+        required: true
+        type: string
+      project-path:
+        description: "Caminho do .csproj no repo do backend"
+        required: true
+        type: string
+      output-dir:
+        description: "Diretório de saída do publish"
+        required: false
+        default: backend-publish
+        type: string
+      infra-directory:
+        description: "Diretório Terraform genérico no repo de infra"
+        required: false
+        default: infra-generic
+        type: string
+      api-gateway-name:
+        description: "Nome base do API Gateway"
+        required: true
+        type: string
+      lambda-function-name:
+        description: "Nome da função Lambda"
+        required: true
+        type: string
+      lambda-handler:
+        description: "Handler/assembly .NET da Lambda"
+        required: true
+        type: string
+      route-base-path:
+        description: "Base path da API no API Gateway sem barra inicial (ex: api/catalog)"
+        required: true
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID: { required: true }
+      AWS_SECRET_ACCESS_KEY: { required: true }
+      AWS_REGION: { required: false }
+      PAT_TOKEN: { required: true }
+
+jobs:
+  deploy-terraform:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+    steps:
+      - name: Resolve checkout ref
+        id: resolve_checkout_ref
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const branch = process.env.BRANCH_NAME;
+            if (!branch) {
+              core.setOutput('ref', '');
+              return;
+            }
+            try {
+              await github.rest.repos.getBranch({
+                owner: 'vyracare',
+                repo: 'vyracare-infra-pipes-dot-net',
+                branch,
+              });
+              core.setOutput('ref', branch);
+            } catch (error) {
+              if (error.status === 404) {
+                core.info(`Branch ${branch} not found in vyracare/vyracare-infra-pipes-dot-net. Falling back to default branch.`);
+                core.setOutput('ref', '');
+              } else {
+                throw error;
+              }
+            }
+        env:
+          BRANCH_NAME: ${{ inputs['branch-name'] }}
+
+      - name: Checkout Infra (branch)
+        if: steps.resolve_checkout_ref.outputs.ref != ''
+        uses: actions/checkout@v4
+        with:
+          repository: vyracare/vyracare-infra-pipes-dot-net
+          ref: ${{ steps.resolve_checkout_ref.outputs.ref }}
+          token: ${{ secrets.PAT_TOKEN }}
+          path: infra-repo
+
+      - name: Checkout Infra (default)
+        if: steps.resolve_checkout_ref.outputs.ref == ''
+        uses: actions/checkout@v4
+        with:
+          repository: vyracare/vyracare-infra-pipes-dot-net
+          token: ${{ secrets.PAT_TOKEN }}
+          path: infra-repo
+
+      - name: Checkout Backend at ref
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs['backend-repo'] }}
+          ref: ${{ inputs['branch-name'] }}
+          token: ${{ secrets.PAT_TOKEN }}
+          path: backend
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore "backend/${{ inputs['project-path'] }}"
+
+      - name: Build
+        run: dotnet build "backend/${{ inputs['project-path'] }}" -c Release --no-restore
+
+      - name: Publish (linux-x64)
+        run: |
+          mkdir -p "${{ inputs['output-dir'] }}"
+          dotnet publish "backend/${{ inputs['project-path'] }}" -c Release -r linux-x64 --self-contained false -o "${{ inputs['output-dir'] }}"
+
+      - name: Export Terraform vars
+        run: |
+          echo "TF_VAR_lambda_source_dir=${GITHUB_WORKSPACE}/${{ inputs['output-dir'] }}" >> $GITHUB_ENV
+          echo "TF_VAR_api_gateway_name=${{ inputs['api-gateway-name'] }}" >> $GITHUB_ENV
+          echo "TF_VAR_lambda_function_name=${{ inputs['lambda-function-name'] }}" >> $GITHUB_ENV
+          echo "TF_VAR_lambda_handler=${{ inputs['lambda-handler'] }}" >> $GITHUB_ENV
+          echo "TF_VAR_route_base_path=${{ inputs['route-base-path'] }}" >> $GITHUB_ENV
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.2
+
+      - name: Terraform Init
+        working-directory: ./infra-repo/${{ inputs['infra-directory'] }}
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: ./infra-repo/${{ inputs['infra-directory'] }}
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: ./infra-repo/${{ inputs['infra-directory'] }}
+        run: terraform apply -auto-approve tfplan
+
+      - name: Export API Gateway URL
+        working-directory: ./infra-repo/${{ inputs['infra-directory'] }}
+        run: |
+          set -euo pipefail
+          api_url=$(terraform output -raw api_gateway_url)
+          echo "API_GATEWAY_URL=$api_url" >> $GITHUB_ENV
