@@ -258,3 +258,78 @@ jobs:
         run: |
           echo "API publicada em: $API_GATEWAY_URL"
           echo "Swagger publicado em: $SWAGGER_URL"
+
+      - name: Resolve app-user-mfe ref
+        if: inputs['backend-repo'] == 'vyracare/vyracare-api-client'
+        id: resolve_app_user_ref
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const branch = process.env.BRANCH_NAME;
+            if (!branch) {
+              core.setOutput('ref', '');
+              return;
+            }
+            try {
+              await github.rest.repos.getBranch({
+                owner: 'vyracare',
+                repo: 'vyracare-app-user-mfe',
+                branch,
+              });
+              core.setOutput('ref', branch);
+            } catch (error) {
+              if (error.status === 404) {
+                core.info(`Branch ${branch} not found in vyracare/vyracare-app-user-mfe. Falling back to default branch.`);
+                core.setOutput('ref', '');
+              } else {
+                throw error;
+              }
+            }
+        env:
+          BRANCH_NAME: ${{ inputs['branch-name'] }}
+
+      - name: Checkout App User MFE (branch)
+        if: inputs['backend-repo'] == 'vyracare/vyracare-api-client' && steps.resolve_app_user_ref.outputs.ref != ''
+        uses: actions/checkout@v4
+        with:
+          repository: vyracare/vyracare-app-user-mfe
+          ref: ${{ steps.resolve_app_user_ref.outputs.ref }}
+          token: ${{ secrets.PAT_TOKEN }}
+          path: app-user-mfe
+
+      - name: Checkout App User MFE (default)
+        if: inputs['backend-repo'] == 'vyracare/vyracare-api-client' && steps.resolve_app_user_ref.outputs.ref == ''
+        uses: actions/checkout@v4
+        with:
+          repository: vyracare/vyracare-app-user-mfe
+          token: ${{ secrets.PAT_TOKEN }}
+          path: app-user-mfe
+
+      - name: Atualizar clientApiUrl no App User MFE
+        if: inputs['backend-repo'] == 'vyracare/vyracare-api-client'
+        working-directory: ./app-user-mfe
+        run: |
+          set -euo pipefail
+          client_api_url="${API_GATEWAY_URL}/api/client"
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          client_api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/api/client"
+          path = Path("src/environments/environments.ts")
+          text = path.read_text()
+          text = re.sub(r"clientApiUrl:\s*'[^']*'", f"clientApiUrl: '{client_api_url}'", text)
+          path.write_text(text)
+          PY
+
+          if git status --porcelain | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/environments/environments.ts
+            git commit -m "chore: update client api url"
+            git push
+          else
+            echo "App User MFE ja esta atualizado."
+          fi
