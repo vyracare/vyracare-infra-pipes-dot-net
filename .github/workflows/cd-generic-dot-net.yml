@@ -259,77 +259,146 @@ jobs:
           echo "API publicada em: $API_GATEWAY_URL"
           echo "Swagger publicado em: $SWAGGER_URL"
 
-      - name: Resolve app-user-mfe ref
-        if: inputs['backend-repo'] == 'vyracare/vyracare-api-client'
-        id: resolve_app_user_ref
+      - name: Carregar configuracao do MFE consumidor
+        id: consumer_mfe_config
+        working-directory: ./backend
+        shell: bash
+        run: |
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          config_path = Path(".vyracare/mfe-consumer.json")
+
+          enabled = "false"
+          repository = ""
+          api_url_property = "apiUrl"
+          environment_files = ""
+
+          if config_path.exists():
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            config = data.get("consumerMfe") or {}
+            repository = (config.get("repositoryFullName") or "").strip()
+            api_url_property = (config.get("apiUrlProperty") or "apiUrl").strip() or "apiUrl"
+            files = [
+              str(item).strip()
+              for item in (config.get("environmentFiles") or [])
+              if str(item).strip()
+            ]
+
+            if repository:
+              enabled = "true"
+              environment_files = ";".join(files or ["src/environments/environments.ts"])
+
+          with output_path.open("a", encoding="utf-8") as output:
+            output.write(f"enabled={enabled}\n")
+            output.write(f"repository={repository}\n")
+            output.write(f"api_url_property={api_url_property}\n")
+            output.write(f"environment_files={environment_files}\n")
+          PY
+
+      - name: Resolve MFE consumidor ref
+        if: steps.consumer_mfe_config.outputs.enabled == 'true'
+        id: resolve_consumer_mfe_ref
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.PAT_TOKEN }}
           script: |
+            const repositoryFullName = process.env.TARGET_REPOSITORY;
             const branch = process.env.BRANCH_NAME;
+            const [owner, repo] = repositoryFullName.split('/');
+
             if (!branch) {
               core.setOutput('ref', '');
               return;
             }
+
             try {
               await github.rest.repos.getBranch({
-                owner: 'vyracare',
-                repo: 'vyracare-app-user-mfe',
+                owner,
+                repo,
                 branch,
               });
               core.setOutput('ref', branch);
             } catch (error) {
               if (error.status === 404) {
-                core.info(`Branch ${branch} not found in vyracare/vyracare-app-user-mfe. Falling back to default branch.`);
+                core.info(`Branch ${branch} not found in ${repositoryFullName}. Falling back to default branch.`);
                 core.setOutput('ref', '');
               } else {
                 throw error;
               }
             }
         env:
+          TARGET_REPOSITORY: ${{ steps.consumer_mfe_config.outputs.repository }}
           BRANCH_NAME: ${{ inputs['branch-name'] }}
 
-      - name: Checkout App User MFE (branch)
-        if: inputs['backend-repo'] == 'vyracare/vyracare-api-client' && steps.resolve_app_user_ref.outputs.ref != ''
+      - name: Checkout MFE consumidor (branch)
+        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref != ''
         uses: actions/checkout@v4
         with:
-          repository: vyracare/vyracare-app-user-mfe
-          ref: ${{ steps.resolve_app_user_ref.outputs.ref }}
+          repository: ${{ steps.consumer_mfe_config.outputs.repository }}
+          ref: ${{ steps.resolve_consumer_mfe_ref.outputs.ref }}
           token: ${{ secrets.PAT_TOKEN }}
-          path: app-user-mfe
+          path: consumer-mfe
 
-      - name: Checkout App User MFE (default)
-        if: inputs['backend-repo'] == 'vyracare/vyracare-api-client' && steps.resolve_app_user_ref.outputs.ref == ''
+      - name: Checkout MFE consumidor (default)
+        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref == ''
         uses: actions/checkout@v4
         with:
-          repository: vyracare/vyracare-app-user-mfe
+          repository: ${{ steps.consumer_mfe_config.outputs.repository }}
           token: ${{ secrets.PAT_TOKEN }}
-          path: app-user-mfe
+          path: consumer-mfe
 
-      - name: Atualizar clientApiUrl no App User MFE
-        if: inputs['backend-repo'] == 'vyracare/vyracare-api-client'
-        working-directory: ./app-user-mfe
+      - name: Atualizar URL da API no MFE consumidor
+        if: steps.consumer_mfe_config.outputs.enabled == 'true'
+        working-directory: ./consumer-mfe
         run: |
           set -euo pipefail
-          client_api_url="${API_GATEWAY_URL}/api/client"
           python - <<'PY'
           import os
           import re
           from pathlib import Path
 
-          client_api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/api/client"
-          path = Path("src/environments/environments.ts")
-          text = path.read_text()
-          text = re.sub(r"clientApiUrl:\s*'[^']*'", f"clientApiUrl: '{client_api_url}'", text)
-          path.write_text(text)
+          api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/" + os.environ["ROUTE_BASE_PATH"].lstrip("/")
+          property_name = os.environ["API_URL_PROPERTY"]
+          file_paths = [item for item in os.environ["ENVIRONMENT_FILES"].split(";") if item]
+
+          if not file_paths:
+            raise SystemExit("Nenhum arquivo de ambiente configurado para o MFE consumidor.")
+
+          updated_files = []
+
+          for file_path in file_paths:
+            path = Path(file_path)
+            if not path.exists():
+              raise SystemExit(f"Arquivo de ambiente nao encontrado: {file_path}")
+
+            text = path.read_text(encoding="utf-8")
+            updated = re.sub(
+              rf"{re.escape(property_name)}:\s*'[^']*'",
+              f"{property_name}: '{api_url}'",
+              text
+            )
+
+            if updated != text:
+              path.write_text(updated, encoding="utf-8")
+              updated_files.append(file_path)
+
+          print("Arquivos atualizados:", ", ".join(updated_files) if updated_files else "nenhum")
           PY
 
           if git status --porcelain | grep -q .; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/environments/environments.ts
-            git commit -m "chore: update client api url"
+            git add .
+            git commit -m "chore: atualiza url da api consumida"
             git push
           else
-            echo "App User MFE ja esta atualizado."
+            echo "MFE consumidor ja esta atualizado."
           fi
+        env:
+          ROUTE_BASE_PATH: ${{ inputs['route-base-path'] }}
+          API_URL_PROPERTY: ${{ steps.consumer_mfe_config.outputs.api_url_property }}
+          ENVIRONMENT_FILES: ${{ steps.consumer_mfe_config.outputs.environment_files }}
