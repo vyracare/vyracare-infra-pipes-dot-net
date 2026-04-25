@@ -156,4 +156,11 @@ jobs:
         run: |
           set -euo pipefail
           api_url=$(terraform output -raw api_gateway_url)
+          swagger_url=$(terraform output -raw swagger_url)
           echo "API_GATEWAY_URL=$api_url" >> $GITHUB_ENV
+          echo "SWAGGER_URL=$swagger_url" >> $GITHUB_ENV
+
+      - name: Exibir URLs publicadas
+        run: |
+          echo "API publicada em: $API_GATEWAY_URL"
+          echo "Swagger publicado em: $SWAGGER_URL"

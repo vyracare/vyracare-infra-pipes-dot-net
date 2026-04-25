@@ -129,6 +129,18 @@ resource "aws_apigatewayv2_route" "api_proxy" {
   target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
 }
 
+resource "aws_apigatewayv2_route" "swagger_root" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "ANY /swagger"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+}
+
+resource "aws_apigatewayv2_route" "swagger_proxy" {
+  api_id    = aws_apigatewayv2_api.http_api.id
+  route_key = "ANY /swagger/{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+}
+
 resource "aws_apigatewayv2_route" "health" {
   api_id    = aws_apigatewayv2_api.http_api.id
   route_key = "GET /health"
