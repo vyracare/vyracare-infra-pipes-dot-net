@@ -48,6 +48,9 @@ on:
       PAT_TOKEN: { required: true }
       MONGO_URI: { required: false }
       CORS_ALLOWED_ORIGINS: { required: false }
+      JWT_KEY: { required: false }
+      JWT_ISSUER: { required: false }
+      JWT_AUDIENCE: { required: false }
 
 jobs:
   deploy-terraform:
@@ -146,12 +149,24 @@ jobs:
           variables = {}
           mongo_uri = os.environ.get("MONGO_URI", "").strip()
           cors_allowed_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "").strip()
+          jwt_key = os.environ.get("JWT_KEY", "").strip()
+          jwt_issuer = os.environ.get("JWT_ISSUER", "").strip()
+          jwt_audience = os.environ.get("JWT_AUDIENCE", "").strip()
 
           if mongo_uri:
             variables["MONGO_URI"] = mongo_uri
 
           if cors_allowed_origins:
             variables["CORS_ALLOWED_ORIGINS"] = cors_allowed_origins
+
+          if jwt_key:
+            variables["JWT_KEY"] = jwt_key
+
+          if jwt_issuer:
+            variables["JWT_ISSUER"] = jwt_issuer
+
+          if jwt_audience:
+            variables["JWT_AUDIENCE"] = jwt_audience
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
             env_file.write("TF_VAR_lambda_environment_variables<<EOF\n")
@@ -161,6 +176,9 @@ jobs:
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+          JWT_KEY: ${{ secrets.JWT_KEY }}
+          JWT_ISSUER: ${{ secrets.JWT_ISSUER }}
+          JWT_AUDIENCE: ${{ secrets.JWT_AUDIENCE }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
