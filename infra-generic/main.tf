@@ -72,6 +72,10 @@ resource "aws_lambda_function" "backend_api" {
   source_code_hash = data.archive_file.lambda.output_base64sha256
   publish          = true
   timeout          = 30
+
+  environment {
+    variables = var.lambda_environment_variables
+  }
 }
 
 resource "aws_cloudwatch_log_group" "lambda_logs" {

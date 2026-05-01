@@ -46,6 +46,8 @@ on:
       AWS_SECRET_ACCESS_KEY: { required: true }
       AWS_REGION: { required: false }
       PAT_TOKEN: { required: true }
+      MONGO_URI: { required: false }
+      CORS_ALLOWED_ORIGINS: { required: false }
 
 jobs:
   deploy-terraform:
@@ -133,6 +135,32 @@ jobs:
           echo "TF_VAR_lambda_function_name=${{ inputs['lambda-function-name'] }}" >> $GITHUB_ENV
           echo "TF_VAR_lambda_handler=${{ inputs['lambda-handler'] }}" >> $GITHUB_ENV
           echo "TF_VAR_route_base_path=${{ inputs['route-base-path'] }}" >> $GITHUB_ENV
+
+      - name: Export Lambda environment variables
+        shell: bash
+        run: |
+          python <<'PY'
+          import json
+          import os
+
+          variables = {}
+          mongo_uri = os.environ.get("MONGO_URI", "").strip()
+          cors_allowed_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "").strip()
+
+          if mongo_uri:
+            variables["MONGO_URI"] = mongo_uri
+
+          if cors_allowed_origins:
+            variables["CORS_ALLOWED_ORIGINS"] = cors_allowed_origins
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+            env_file.write("TF_VAR_lambda_environment_variables<<EOF\n")
+            env_file.write(json.dumps(variables))
+            env_file.write("\nEOF\n")
+          PY
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

@@ -61,3 +61,9 @@ variable "lambda_provisioned_concurrency" {
   type        = number
   default     = 0
 }
+
+variable "lambda_environment_variables" {
+  description = "Variaveis de ambiente aplicadas na Lambda"
+  type        = map(string)
+  default     = {}
+}
