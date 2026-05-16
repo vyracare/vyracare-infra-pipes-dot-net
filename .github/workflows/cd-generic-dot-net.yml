@@ -407,6 +407,10 @@ jobs:
           import re
           from pathlib import Path
 
+          default_auth_api_url = os.environ.get(
+            "DEFAULT_AUTH_API_URL",
+            "https://ef39m2gyya.execute-api.us-east-1.amazonaws.com/api/auth"
+          )
           api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/" + os.environ["ROUTE_BASE_PATH"].lstrip("/")
           property_name = os.environ["API_URL_PROPERTY"]
           file_paths = [item for item in os.environ["ENVIRONMENT_FILES"].split(";") if item]
@@ -415,11 +419,28 @@ jobs:
             raise SystemExit("Nenhum arquivo de ambiente configurado para o MFE consumidor.")
 
           updated_files = []
+          created_files = []
+
+          def build_environment_file(is_production: bool) -> str:
+            return (
+              "export const environment = {\n"
+              f"  production: {'true' if is_production else 'false'},\n"
+              f"  authApiUrl: '{default_auth_api_url}',\n"
+              f"  {property_name}: '{api_url}'\n"
+              "};\n"
+            )
 
           for file_path in file_paths:
             path = Path(file_path)
             if not path.exists():
-              raise SystemExit(f"Arquivo de ambiente nao encontrado: {file_path}")
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(
+                build_environment_file(".prod." in path.name),
+                encoding="utf-8"
+              )
+              created_files.append(file_path)
+              updated_files.append(file_path)
+              continue
 
             text = path.read_text(encoding="utf-8")
             updated = re.sub(
@@ -428,9 +449,22 @@ jobs:
               text
             )
 
+            if updated == text:
+              if re.search(r"export const environment\s*=\s*\{", text) and re.search(r"\n\};\s*$", text):
+                updated = re.sub(
+                  r"\n\};\s*$",
+                  f",\n  {property_name}: '{api_url}'\n}};\n",
+                  text
+                )
+              else:
+                updated = build_environment_file(".prod." in path.name)
+
             if updated != text:
               path.write_text(updated, encoding="utf-8")
               updated_files.append(file_path)
+
+          if created_files:
+            print("Arquivos criados:", ", ".join(created_files))
 
           print("Arquivos atualizados:", ", ".join(updated_files) if updated_files else "nenhum")
           PY
@@ -448,3 +482,4 @@ jobs:
           ROUTE_BASE_PATH: ${{ inputs['route-base-path'] }}
           API_URL_PROPERTY: ${{ steps.consumer_mfe_config.outputs.api_url_property }}
           ENVIRONMENT_FILES: ${{ steps.consumer_mfe_config.outputs.environment_files }}
+          DEFAULT_AUTH_API_URL: https://ef39m2gyya.execute-api.us-east-1.amazonaws.com/api/auth
