@@ -322,12 +322,14 @@ jobs:
           repository = ""
           api_url_property = "apiUrl"
           environment_files = ""
+          environment_properties_json = "{}"
 
           if config_path.exists():
             data = json.loads(config_path.read_text(encoding="utf-8"))
             config = data.get("consumerMfe") or {}
             repository = (config.get("repositoryFullName") or "").strip()
             api_url_property = (config.get("apiUrlProperty") or "apiUrl").strip() or "apiUrl"
+            environment_properties = config.get("environmentProperties") or {}
             files = [
               str(item).strip()
               for item in (config.get("environmentFiles") or [])
@@ -337,12 +339,14 @@ jobs:
             if repository:
               enabled = "true"
               environment_files = ";".join(files or ["src/environments/environments.ts"])
+              environment_properties_json = json.dumps(environment_properties)
 
           with output_path.open("a", encoding="utf-8") as output:
             output.write(f"enabled={enabled}\n")
             output.write(f"repository={repository}\n")
             output.write(f"api_url_property={api_url_property}\n")
             output.write(f"environment_files={environment_files}\n")
+            output.write(f"environment_properties_json={environment_properties_json}\n")
           PY
 
       - name: Resolve MFE consumidor ref
@@ -403,32 +407,73 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          import json
           import os
           import re
           from pathlib import Path
 
-          default_auth_api_url = os.environ.get(
-            "DEFAULT_AUTH_API_URL",
-            "https://ef39m2gyya.execute-api.us-east-1.amazonaws.com/api/auth"
-          )
           api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/" + os.environ["ROUTE_BASE_PATH"].lstrip("/")
           property_name = os.environ["API_URL_PROPERTY"]
           file_paths = [item for item in os.environ["ENVIRONMENT_FILES"].split(";") if item]
+          raw_environment_properties = os.environ.get("ENVIRONMENT_PROPERTIES_JSON", "{}").strip() or "{}"
 
           if not file_paths:
             raise SystemExit("Nenhum arquivo de ambiente configurado para o MFE consumidor.")
 
           updated_files = []
           created_files = []
+          environment_properties = json.loads(raw_environment_properties)
+
+          if not isinstance(environment_properties, dict):
+            raise SystemExit("environmentProperties deve ser um objeto JSON no metadata do consumerMfe.")
+
+          def resolve_property_value(value: str) -> str:
+            resolved = str(value)
+            resolved = resolved.replace("{{API_GATEWAY_URL}}", os.environ["API_GATEWAY_URL"].rstrip("/"))
+            resolved = resolved.replace("{{ROUTE_BASE_PATH}}", os.environ["ROUTE_BASE_PATH"].lstrip("/"))
+            resolved = resolved.replace("{{PUBLISHED_API_URL}}", api_url)
+            resolved = resolved.replace("{{SWAGGER_URL}}", os.environ.get("SWAGGER_URL", "").strip())
+            return resolved
+
+          resolved_properties = {
+            str(key).strip(): resolve_property_value(value)
+            for key, value in environment_properties.items()
+            if str(key).strip()
+          }
+
+          resolved_properties[property_name] = api_url
 
           def build_environment_file(is_production: bool) -> str:
-            return (
-              "export const environment = {\n"
-              f"  production: {'true' if is_production else 'false'},\n"
-              f"  authApiUrl: '{default_auth_api_url}',\n"
-              f"  {property_name}: '{api_url}'\n"
-              "};\n"
+            properties_lines = [
+              f"  {key}: '{value}'"
+              for key, value in resolved_properties.items()
+            ]
+
+            return "export const environment = {\n" + "\n".join(
+              [f"  production: {'true' if is_production else 'false'},", *[
+                line + ("," if index < len(properties_lines) - 1 else "")
+                for index, line in enumerate(properties_lines)
+              ]]
+            ) + "\n};\n"
+
+          def upsert_property(text: str, key: str, value: str) -> str:
+            updated_text = re.sub(
+              rf"{re.escape(key)}:\s*'[^']*'",
+              f"{key}: '{value}'",
+              text
             )
+
+            if updated_text != text:
+              return updated_text
+
+            if re.search(r"export const environment\s*=\s*\{", text) and re.search(r"\n\};\s*$", text):
+              return re.sub(
+                r"\n\};\s*$",
+                f",\n  {key}: '{value}'\n}};\n",
+                text
+              )
+
+            return build_environment_file(".prod." in path.name)
 
           for file_path in file_paths:
             path = Path(file_path)
@@ -443,21 +488,10 @@ jobs:
               continue
 
             text = path.read_text(encoding="utf-8")
-            updated = re.sub(
-              rf"{re.escape(property_name)}:\s*'[^']*'",
-              f"{property_name}: '{api_url}'",
-              text
-            )
+            updated = text
 
-            if updated == text:
-              if re.search(r"export const environment\s*=\s*\{", text) and re.search(r"\n\};\s*$", text):
-                updated = re.sub(
-                  r"\n\};\s*$",
-                  f",\n  {property_name}: '{api_url}'\n}};\n",
-                  text
-                )
-              else:
-                updated = build_environment_file(".prod." in path.name)
+            for key, value in resolved_properties.items():
+              updated = upsert_property(updated, key, value)
 
             if updated != text:
               path.write_text(updated, encoding="utf-8")
@@ -482,4 +516,4 @@ jobs:
           ROUTE_BASE_PATH: ${{ inputs['route-base-path'] }}
           API_URL_PROPERTY: ${{ steps.consumer_mfe_config.outputs.api_url_property }}
           ENVIRONMENT_FILES: ${{ steps.consumer_mfe_config.outputs.environment_files }}
-          DEFAULT_AUTH_API_URL: https://ef39m2gyya.execute-api.us-east-1.amazonaws.com/api/auth
+          ENVIRONMENT_PROPERTIES_JSON: ${{ steps.consumer_mfe_config.outputs.environment_properties_json }}
