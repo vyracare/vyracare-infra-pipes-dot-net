@@ -475,6 +475,13 @@ jobs:
 
             return build_environment_file(".prod." in path.name)
 
+          def get_property_value(text: str, key: str) -> str | None:
+            match = re.search(
+              rf"{re.escape(key)}:\s*'([^']*)'",
+              text
+            )
+            return match.group(1) if match else None
+
           for file_path in file_paths:
             path = Path(file_path)
             if not path.exists():
@@ -488,6 +495,11 @@ jobs:
               continue
 
             text = path.read_text(encoding="utf-8")
+            current_api_url = get_property_value(text, property_name)
+
+            if current_api_url == api_url:
+              continue
+
             updated = text
 
             for key, value in resolved_properties.items():
