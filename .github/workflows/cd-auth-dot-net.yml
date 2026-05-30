@@ -199,51 +199,243 @@ jobs:
           echo "API_GATEWAY_URL=$api_url" >> $GITHUB_ENV
           echo "API_GATEWAY_ID=$api_id" >> $GITHUB_ENV
 
-      - name: Resolve app-shell ref
-        id: resolve_app_shell_ref
+      - name: Carregar configuracao do MFE consumidor
+        id: consumer_mfe_config
+        working-directory: ./backend
+        shell: bash
+        run: |
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          config_path = Path(".vyracare/mfe-consumer.json")
+
+          enabled = "false"
+          repository = ""
+          api_url_property = "apiUrl"
+          environment_files = ""
+          environment_properties_json = "{}"
+
+          if config_path.exists():
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+            config = data.get("consumerMfe") or {}
+            repository = (config.get("repositoryFullName") or "").strip()
+            api_url_property = (config.get("apiUrlProperty") or "apiUrl").strip() or "apiUrl"
+            environment_properties = config.get("environmentProperties") or {}
+            files = [
+              str(item).strip()
+              for item in (config.get("environmentFiles") or [])
+              if str(item).strip()
+            ]
+
+            if repository:
+              enabled = "true"
+              environment_files = ";".join(files or ["src/environments/environments.ts"])
+              environment_properties_json = json.dumps(environment_properties)
+
+          with output_path.open("a", encoding="utf-8") as output:
+            output.write(f"enabled={enabled}\n")
+            output.write(f"repository={repository}\n")
+            output.write(f"api_url_property={api_url_property}\n")
+            output.write(f"environment_files={environment_files}\n")
+            output.write(f"environment_properties_json={environment_properties_json}\n")
+          PY
+
+      - name: Resolve MFE consumidor ref
+        if: steps.consumer_mfe_config.outputs.enabled == 'true'
+        id: resolve_consumer_mfe_ref
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.PAT_TOKEN }}
           script: |
+            const repositoryFullName = process.env.TARGET_REPOSITORY;
             const branch = process.env.BRANCH_NAME;
+            const [owner, repo] = repositoryFullName.split('/');
+
             if (!branch) {
               core.setOutput('ref', '');
               return;
             }
+
             try {
               await github.rest.repos.getBranch({
-                owner: 'vyracare',
-                repo: 'vyracare-app-shell',
+                owner,
+                repo,
                 branch,
               });
               core.setOutput('ref', branch);
             } catch (error) {
               if (error.status === 404) {
-                core.info(`Branch ${branch} not found in vyracare/vyracare-app-shell. Falling back to default branch.`);
+                core.info(`Branch ${branch} not found in ${repositoryFullName}. Falling back to default branch.`);
                 core.setOutput('ref', '');
               } else {
                 throw error;
               }
             }
         env:
+          TARGET_REPOSITORY: ${{ steps.consumer_mfe_config.outputs.repository }}
           BRANCH_NAME: ${{ inputs['branch-name'] }}
 
-      - name: Checkout App Shell (branch)
-        if: steps.resolve_app_shell_ref.outputs.ref != ''
+      - name: Checkout MFE consumidor (branch)
+        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref != ''
         uses: actions/checkout@v4
         with:
-          repository: vyracare/vyracare-app-shell
-          ref: ${{ steps.resolve_app_shell_ref.outputs.ref }}
+          repository: ${{ steps.consumer_mfe_config.outputs.repository }}
+          ref: ${{ steps.resolve_consumer_mfe_ref.outputs.ref }}
           token: ${{ secrets.PAT_TOKEN }}
-          path: app-shell
+          path: consumer-mfe
 
-      - name: Checkout App Shell (default)
-        if: steps.resolve_app_shell_ref.outputs.ref == ''
+      - name: Checkout MFE consumidor (default)
+        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref == ''
         uses: actions/checkout@v4
         with:
-          repository: vyracare/vyracare-app-shell
+          repository: ${{ steps.consumer_mfe_config.outputs.repository }}
           token: ${{ secrets.PAT_TOKEN }}
-          path: app-shell
+          path: consumer-mfe
+
+      - name: Atualizar URL da API no MFE consumidor
+        if: steps.consumer_mfe_config.outputs.enabled == 'true'
+        working-directory: ./consumer-mfe
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/api/auth"
+          property_name = os.environ["API_URL_PROPERTY"]
+          file_paths = [item for item in os.environ["ENVIRONMENT_FILES"].split(";") if item]
+          raw_environment_properties = os.environ.get("ENVIRONMENT_PROPERTIES_JSON", "{}").strip() or "{}"
+
+          if not file_paths:
+            raise SystemExit("Nenhum arquivo de ambiente configurado para o MFE consumidor.")
+
+          updated_files = []
+          created_files = []
+          environment_properties = json.loads(raw_environment_properties)
+
+          if not isinstance(environment_properties, dict):
+            raise SystemExit("environmentProperties deve ser um objeto JSON no metadata do consumerMfe.")
+
+          def resolve_property_value(value: str) -> str:
+            resolved = str(value)
+            resolved = resolved.replace("{{API_GATEWAY_URL}}", os.environ["API_GATEWAY_URL"].rstrip("/"))
+            resolved = resolved.replace("{{API_GATEWAY_ID}}", os.environ["API_GATEWAY_ID"].strip())
+            resolved = resolved.replace("{{PUBLISHED_API_URL}}", api_url)
+            return resolved
+
+          resolved_properties = {
+            str(key).strip(): resolve_property_value(value)
+            for key, value in environment_properties.items()
+            if str(key).strip()
+          }
+
+          resolved_properties[property_name] = api_url
+
+          def build_environment_file(is_production: bool) -> str:
+            property_lines = []
+            for key, value in resolved_properties.items():
+              if key == "api_id":
+                property_lines.append(f'  {key}: "{value}"')
+              else:
+                property_lines.append(f"  {key}: '{value}'")
+
+            lines = [f"  production: {'true' if is_production else 'false'},"]
+            for index, line in enumerate(property_lines):
+              suffix = "," if index < len(property_lines) - 1 else ""
+              lines.append(line + suffix)
+            return "export const environment = {\n" + "\n".join(lines) + "\n};\n"
+
+          def get_property_value(text: str, key: str) -> str | None:
+            match = re.search(rf"{re.escape(key)}:\s*'([^']*)'", text)
+            if match:
+              return match.group(1)
+
+            match = re.search(rf'{re.escape(key)}:\s*"([^"]*)"', text)
+            if match:
+              return match.group(1)
+
+            return None
+
+          def upsert_property(text: str, key: str, value: str) -> str:
+            if key == "api_id":
+              updated_text = re.sub(
+                rf'{re.escape(key)}:\s*"[^"]*"',
+                f'{key}: "{value}"',
+                text
+              )
+            else:
+              updated_text = re.sub(
+                rf"{re.escape(key)}:\s*'[^']*'",
+                f"{key}: '{value}'",
+                text
+              )
+
+            if updated_text != text:
+              return updated_text
+
+            if re.search(r"export const environment\s*=\s*\{", text) and re.search(r"\n\};\s*$", text):
+              serialized = f'  {key}: "{value}"' if key == "api_id" else f"  {key}: '{value}'"
+              return re.sub(r"\n\};\s*$", f",\n{serialized}\n}};\n", text)
+
+            return build_environment_file(".prod." in path.name)
+
+          for file_path in file_paths:
+            path = Path(file_path)
+            desired_values = {**resolved_properties}
+
+            if not path.exists():
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(
+                build_environment_file(".prod." in path.name),
+                encoding="utf-8"
+              )
+              created_files.append(file_path)
+              updated_files.append(file_path)
+              continue
+
+            text = path.read_text(encoding="utf-8")
+            needs_update = False
+
+            for key, desired_value in desired_values.items():
+              if get_property_value(text, key) != desired_value:
+                needs_update = True
+                break
+
+            if not needs_update:
+              continue
+
+            updated = text
+            for key, desired_value in desired_values.items():
+              updated = upsert_property(updated, key, desired_value)
+
+            if updated != text:
+              path.write_text(updated, encoding="utf-8")
+              updated_files.append(file_path)
+
+          if created_files:
+            print("Arquivos criados:", ", ".join(created_files))
+
+          print("Arquivos atualizados:", ", ".join(updated_files) if updated_files else "nenhum")
+          PY
+
+          if git status --porcelain | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .
+            git commit -m "chore: atualiza url da api consumida"
+            git push
+          else
+            echo "MFE consumidor ja esta atualizado."
+          fi
+        env:
+          API_URL_PROPERTY: ${{ steps.consumer_mfe_config.outputs.api_url_property }}
+          ENVIRONMENT_FILES: ${{ steps.consumer_mfe_config.outputs.environment_files }}
+          ENVIRONMENT_PROPERTIES_JSON: ${{ steps.consumer_mfe_config.outputs.environment_properties_json }}
 
       - name: Resolve app-user-mfe ref
         id: resolve_app_user_ref
@@ -291,43 +483,6 @@ jobs:
           token: ${{ secrets.PAT_TOKEN }}
           path: app-user-mfe
 
-      - name: Update App Shell apiUrl
-        working-directory: ./app-shell
-        run: |
-          set -euo pipefail
-          api_url="${API_GATEWAY_URL}/api/auth"
-          api_id="${API_GATEWAY_ID}"
-          python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/api/auth"
-          api_id = os.environ["API_GATEWAY_ID"]
-
-          def update(path: str) -> None:
-            p = Path(path)
-            if not p.exists():
-              return
-            text = p.read_text()
-            text = re.sub(r"apiUrl:\\s*'[^']*'", f"apiUrl: '{api_url}'", text)
-            text = re.sub(r'api_id:\\s*\"[^\"]*\"', f'api_id: \"{api_id}\"', text)
-            p.write_text(text)
-
-          update("src/environments/environments.ts")
-          update("src/environments/environments.prod.ts")
-          PY
-
-          if git status --porcelain | grep -q .; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/environments/environments.ts src/environments/environments.prod.ts
-            git commit -m "chore: update auth api url"
-            git push
-          else
-            echo "App Shell already up to date."
-          fi
-
       - name: Update App User MFE apiUrl
         working-directory: ./app-user-mfe
         run: |
@@ -339,17 +494,19 @@ jobs:
           from pathlib import Path
 
           api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/api/auth"
-          p = Path("src/environments/environments.ts")
-          if p.exists():
+          for file_name in ("src/environments/environments.ts", "src/environments/environments.prod.ts"):
+            p = Path(file_name)
+            if not p.exists():
+              continue
             text = p.read_text()
-            text = re.sub(r"apiUrl:\\s*'[^']*'", f"apiUrl: '{api_url}'", text)
+            text = re.sub(r"authApiUrl:\\s*'[^']*'", f"authApiUrl: '{api_url}'", text)
             p.write_text(text)
           PY
 
           if git status --porcelain | grep -q .; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/environments/environments.ts
+            git add src/environments/environments.ts src/environments/environments.prod.ts || true
             git commit -m "chore: update auth api url"
             git push
           else
