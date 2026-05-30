@@ -13,6 +13,8 @@ provider "aws" {
   region = var.region
 }
 
+data "aws_caller_identity" "current" {}
+
 locals {
   lambda_source_dir_input = trimspace(var.lambda_source_dir)
   lambda_source_dir       = abspath(local.lambda_source_dir_input)
@@ -60,6 +62,25 @@ resource "aws_iam_role" "lambda_exec" {
 resource "aws_iam_role_policy_attachment" "lambda_logs" {
   role       = aws_iam_role.lambda_exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "lambda_secrets_manager" {
+  name = "${var.lambda_function_name}-secrets-manager"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue"
+        ],
+        Resource = "arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:vyracare/*"
+      }
+    ]
+  })
 }
 
 resource "aws_lambda_function" "backend_api" {
