@@ -138,75 +138,136 @@ jobs:
         with:
           terraform_version: 1.9.2
 
+      - name: Reset local Terraform state
+        working-directory: ./infra-repo/infra
+        run: |
+          rm -f terraform.tfstate terraform.tfstate.backup
+
       - name: Terraform Init
         working-directory: ./infra-repo/infra
         run: terraform init
 
-      - name: Detect existing infra and prepare destroy
+      - name: Import existing infra into state
         working-directory: ./infra-repo/infra
         run: |
           set -euo pipefail
 
-          destroy_needed="false"
           state_list="$(terraform state list 2>/dev/null || true)"
           state_has() {
             echo "$state_list" | grep -qx "$1"
           }
+          import_if_missing() {
+            local address="$1"
+            local import_id="$2"
+
+            if [ -z "$import_id" ] || [ "$import_id" = "None" ]; then
+              return
+            fi
+
+            if state_has "$address"; then
+              return
+            fi
+
+            terraform import "$address" "$import_id" || true
+          }
+
+          import_route_if_exists() {
+            local address="$1"
+            local route_key="$2"
+            local route_id
+
+            route_id=$(aws apigatewayv2 get-routes \
+              --api-id "$api_id" \
+              --query "Items[?RouteKey=='$route_key'] | [0].RouteId" \
+              --output text)
+
+            if [ -n "$route_id" ] && [ "$route_id" != "None" ]; then
+              import_if_missing "$address" "$api_id/$route_id"
+            fi
+          }
+
           if [ "${TF_VAR_env_suffix:-dev}" = "dev" ]; then
-            api_name="vyracare-api-dev"
+            resource_suffix="-dev"
           else
-            api_name="vyracare-api"
-          fi
-          api_id=$(aws apigatewayv2 get-apis --query "Items[?Name=='${api_name}'].ApiId | [0]" --output text)
-
-          if [ -n "$api_id" ] && [ "$api_id" != "None" ]; then
-            destroy_needed="true"
-            if ! state_has "aws_apigatewayv2_api.http_api"; then
-              terraform import aws_apigatewayv2_api.http_api "$api_id" || true
-            fi
+            resource_suffix=""
           fi
 
-          lambda_name="${TF_VAR_lambda_function_name:-vyracare-auth-dev}"
+          api_name="vyracare-api${resource_suffix}"
+          lambda_name="${TF_VAR_lambda_function_name}"
+          role_name="vyracare-lambda-exec${resource_suffix}"
+          policy_name="vyracare-lambda-secrets-manager${resource_suffix}"
+          user_pool_name="vyracare-user-pool${resource_suffix}"
+          user_pool_client_name="vyracare-spa-client${resource_suffix}"
+          policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+
+          if aws iam get-role --role-name "$role_name" >/dev/null 2>&1; then
+            import_if_missing aws_iam_role.lambda_exec "$role_name"
+            import_if_missing aws_iam_role_policy_attachment.lambda_logs "$role_name/$policy_arn"
+            import_if_missing aws_iam_role_policy.lambda_secrets_manager "$role_name:$policy_name"
+          fi
+
           if aws lambda get-function --function-name "$lambda_name" >/dev/null 2>&1; then
-            destroy_needed="true"
-            if ! state_has "aws_lambda_function.auth_api"; then
-              terraform import aws_lambda_function.auth_api "$lambda_name" || true
-            fi
+            import_if_missing aws_lambda_function.auth_api "$lambda_name"
+
             if aws lambda get-alias --function-name "$lambda_name" --name "live" >/dev/null 2>&1; then
-              if ! state_has "aws_lambda_alias.auth_api_live"; then
-                terraform import aws_lambda_alias.auth_api_live "$lambda_name/live" || true
-              fi
+              import_if_missing aws_lambda_alias.auth_api_live "$lambda_name/live"
             fi
           fi
 
           log_group_name="/aws/lambda/${lambda_name}"
-          if aws logs describe-log-groups --log-group-name-prefix "$log_group_name" --query "logGroups[?logGroupName=='${log_group_name}'].logGroupName | [0]" --output text | grep -qx "$log_group_name"; then
-            destroy_needed="true"
-            if ! state_has "aws_cloudwatch_log_group.lambda_logs"; then
-              terraform import aws_cloudwatch_log_group.lambda_logs "$log_group_name" || true
+          log_group_exists=$(aws logs describe-log-groups \
+            --log-group-name-prefix "$log_group_name" \
+            --query "logGroups[?logGroupName=='${log_group_name}'].logGroupName | [0]" \
+            --output text)
+
+          if [ "$log_group_exists" = "$log_group_name" ]; then
+            import_if_missing aws_cloudwatch_log_group.lambda_logs "$log_group_name"
+          fi
+
+          user_pool_id=$(aws cognito-idp list-user-pools --max-results 60 \
+            --query "UserPools[?Name=='${user_pool_name}'] | [0].Id" \
+            --output text)
+          if [ -n "$user_pool_id" ] && [ "$user_pool_id" != "None" ]; then
+            import_if_missing aws_cognito_user_pool.user_pool "$user_pool_id"
+
+            user_pool_client_id=$(aws cognito-idp list-user-pool-clients \
+              --user-pool-id "$user_pool_id" \
+              --max-results 60 \
+              --query "UserPoolClients[?ClientName=='${user_pool_client_name}'] | [0].ClientId" \
+              --output text)
+
+            if [ -n "$user_pool_client_id" ] && [ "$user_pool_client_id" != "None" ]; then
+              import_if_missing aws_cognito_user_pool_client.app_client "$user_pool_id/$user_pool_client_id"
             fi
           fi
 
-          if [ "$destroy_needed" = "true" ]; then
-            echo "DESTROY_INFRA=true" >> $GITHUB_ENV
-          else
-            echo "DESTROY_INFRA=false" >> $GITHUB_ENV
-          fi
+          api_id=$(aws apigatewayv2 get-apis --query "Items[?Name=='${api_name}'] | [0].ApiId" --output text)
+          if [ -n "$api_id" ] && [ "$api_id" != "None" ]; then
+            import_if_missing aws_apigatewayv2_api.http_api "$api_id"
+            import_if_missing aws_apigatewayv2_stage.default "$api_id/\$default"
 
-      - name: Terraform Destroy (Gateway + Lambda)
-        if: env.DESTROY_INFRA == 'true'
-        working-directory: ./infra-repo/infra
-        run: |
-          targets=$(terraform state list | grep -E '^(aws_apigatewayv2_|aws_lambda_|aws_cloudwatch_log_group\\.lambda_logs$|aws_iam_role\\.lambda_exec$|aws_iam_role_policy_attachment\\.lambda_logs$)' || true)
-          if [ -z "$targets" ]; then
-            echo "No gateway/lambda resources found in state."
-            exit 0
+            integration_id=$(aws apigatewayv2 get-integrations \
+              --api-id "$api_id" \
+              --query "Items[0].IntegrationId" \
+              --output text)
+            if [ -n "$integration_id" ] && [ "$integration_id" != "None" ]; then
+              import_if_missing aws_apigatewayv2_integration.lambda_integration "$api_id/$integration_id"
+            fi
+
+            authorizer_id=$(aws apigatewayv2 get-authorizers \
+              --api-id "$api_id" \
+              --query "Items[?Name=='jwt-authorizer'] | [0].AuthorizerId" \
+              --output text)
+            if [ -n "$authorizer_id" ] && [ "$authorizer_id" != "None" ]; then
+              import_if_missing aws_apigatewayv2_authorizer.jwt "$api_id/$authorizer_id"
+            fi
+
+            import_route_if_exists aws_apigatewayv2_route.auth_login "POST /api/auth/login"
+            import_route_if_exists aws_apigatewayv2_route.auth_register "POST /api/auth/register"
+            import_route_if_exists aws_apigatewayv2_route.auth_first_access_check "POST /api/auth/first-access/check"
+            import_route_if_exists aws_apigatewayv2_route.auth_first_access_set_password "POST /api/auth/first-access/set-password"
+            import_route_if_exists aws_apigatewayv2_route.auth_forgot_password "POST /api/auth/forgot-password"
           fi
-          args=()
-          while read -r t; do
-            args+=("-target=$t")
-          done <<< "$targets"
-          terraform destroy -auto-approve "${args[@]}"
 
 
       - name: Terraform Plan

@@ -165,7 +165,7 @@ resource "aws_lambda_provisioned_concurrency_config" "auth_api" {
 
 
 resource "aws_lambda_permission" "apigw" {
-  statement_id  = "AllowAPIGatewayInvoke"
+  statement_id_prefix = "AllowAPIGatewayInvoke-"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.auth_api.function_name
   qualifier     = aws_lambda_alias.auth_api_live.name
