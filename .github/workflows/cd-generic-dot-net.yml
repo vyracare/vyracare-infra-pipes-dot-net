@@ -480,7 +480,7 @@ jobs:
 
           def build_environment_file(is_production: bool) -> str:
             properties_lines = [
-              f"  {key}: '{value}'"
+              (f'  {key}: "{value}"' if key == "api_id" else f"  {key}: '{value}'")
               for key, value in resolved_properties.items()
             ]
 
@@ -491,31 +491,38 @@ jobs:
               ]]
             ) + "\n};\n"
 
+          def property_pattern(key: str) -> str:
+            return rf"(?m)^[ \t]*{re.escape(key)}:\s*(?:'[^']*'|\"[^\"]*\")\s*,?\s*$\n?"
+
+          def get_property_value(text: str, key: str) -> str | None:
+            match = re.search(rf"{re.escape(key)}:\s*'([^']*)'", text)
+            if match:
+              return match.group(1)
+
+            match = re.search(rf'{re.escape(key)}:\s*"([^"]*)"', text)
+            if match:
+              return match.group(1)
+
+            return None
+
+          def count_property_occurrences(text: str, key: str) -> int:
+            return len(re.findall(property_pattern(key), text))
+
+          def remove_property_occurrences(text: str, key: str) -> str:
+            return re.sub(property_pattern(key), "", text)
+
           def upsert_property(text: str, key: str, value: str) -> str:
-            updated_text = re.sub(
-              rf"{re.escape(key)}:\s*'[^']*'",
-              f"{key}: '{value}'",
-              text
-            )
+            cleaned_text = remove_property_occurrences(text, key).rstrip()
+            serialized = f'  {key}: "{value}"' if key == "api_id" else f"  {key}: '{value}'"
 
-            if updated_text != text:
-              return updated_text
-
-            if re.search(r"export const environment\s*=\s*\{", text) and re.search(r"\n\};\s*$", text):
+            if re.search(r"export const environment\s*=\s*\{", cleaned_text) and re.search(r"\n\};\s*$", cleaned_text):
               return re.sub(
                 r"\n\};\s*$",
-                f",\n  {key}: '{value}'\n}};\n",
-                text
+                f",\n{serialized}\n}};\n",
+                cleaned_text + "\n"
               )
 
             return build_environment_file(".prod." in path.name)
-
-          def get_property_value(text: str, key: str) -> str | None:
-            match = re.search(
-              rf"{re.escape(key)}:\s*'([^']*)'",
-              text
-            )
-            return match.group(1) if match else None
 
           for file_path in file_paths:
             path = Path(file_path)
@@ -530,9 +537,14 @@ jobs:
               continue
 
             text = path.read_text(encoding="utf-8")
-            current_api_url = get_property_value(text, property_name)
+            needs_update = False
 
-            if current_api_url == api_url:
+            for key, desired_value in resolved_properties.items():
+              if get_property_value(text, key) != desired_value or count_property_occurrences(text, key) != 1:
+                needs_update = True
+                break
+
+            if not needs_update:
               continue
 
             updated = text

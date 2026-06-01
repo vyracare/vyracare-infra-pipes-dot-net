@@ -438,6 +438,9 @@ jobs:
               lines.append(line + suffix)
             return "export const environment = {\n" + "\n".join(lines) + "\n};\n"
 
+          def property_pattern(key: str) -> str:
+            return rf"(?m)^[ \t]*{re.escape(key)}:\s*(?:'[^']*'|\"[^\"]*\")\s*,?\s*$\n?"
+
           def get_property_value(text: str, key: str) -> str | None:
             match = re.search(rf"{re.escape(key)}:\s*'([^']*)'", text)
             if match:
@@ -449,26 +452,18 @@ jobs:
 
             return None
 
+          def count_property_occurrences(text: str, key: str) -> int:
+            return len(re.findall(property_pattern(key), text))
+
+          def remove_property_occurrences(text: str, key: str) -> str:
+            return re.sub(property_pattern(key), "", text)
+
           def upsert_property(text: str, key: str, value: str) -> str:
-            if key == "api_id":
-              updated_text = re.sub(
-                rf'{re.escape(key)}:\s*"[^"]*"',
-                f'{key}: "{value}"',
-                text
-              )
-            else:
-              updated_text = re.sub(
-                rf"{re.escape(key)}:\s*'[^']*'",
-                f"{key}: '{value}'",
-                text
-              )
+            cleaned_text = remove_property_occurrences(text, key).rstrip()
+            serialized = f'  {key}: "{value}"' if key == "api_id" else f"  {key}: '{value}'"
 
-            if updated_text != text:
-              return updated_text
-
-            if re.search(r"export const environment\s*=\s*\{", text) and re.search(r"\n\};\s*$", text):
-              serialized = f'  {key}: "{value}"' if key == "api_id" else f"  {key}: '{value}'"
-              return re.sub(r"\n\};\s*$", f",\n{serialized}\n}};\n", text)
+            if re.search(r"export const environment\s*=\s*\{", cleaned_text) and re.search(r"\n\};\s*$", cleaned_text):
+              return re.sub(r"\n\};\s*$", f",\n{serialized}\n}};\n", cleaned_text + "\n")
 
             return build_environment_file(".prod." in path.name)
 
@@ -490,7 +485,7 @@ jobs:
             needs_update = False
 
             for key, desired_value in desired_values.items():
-              if get_property_value(text, key) != desired_value:
+              if get_property_value(text, key) != desired_value or count_property_occurrences(text, key) != 1:
                 needs_update = True
                 break
 
