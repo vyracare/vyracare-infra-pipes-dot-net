@@ -56,7 +56,7 @@ variable "route_id_auth_forgot_password" {
 }
 
 variable "lambda_function_name" {
-  default = "vyracare-auth-dev"
+  default = "vyracare-auth"
 }
 
 variable "lambda_source_dir" {

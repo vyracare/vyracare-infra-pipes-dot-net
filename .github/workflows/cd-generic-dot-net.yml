@@ -131,11 +131,28 @@ jobs:
           mkdir -p "${{ inputs['output-dir'] }}"
           dotnet publish "backend/${{ inputs['project-path'] }}" -c Release -r linux-x64 --self-contained false -o "${{ inputs['output-dir'] }}"
 
+      - name: Resolve deployment context
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs['branch-name'] }}" = "main" ]; then
+            env_suffix="prod"
+            resource_suffix=""
+          else
+            env_suffix="dev"
+            resource_suffix="-dev"
+          fi
+
+          echo "TF_VAR_env_suffix=${env_suffix}" >> $GITHUB_ENV
+          echo "RESOURCE_SUFFIX=${resource_suffix}" >> $GITHUB_ENV
+          echo "LAMBDA_FUNCTION_FULL_NAME=${{ inputs['lambda-function-name'] }}${resource_suffix}" >> $GITHUB_ENV
+
       - name: Export Terraform vars
         run: |
           echo "TF_VAR_lambda_source_dir=${GITHUB_WORKSPACE}/${{ inputs['output-dir'] }}" >> $GITHUB_ENV
           echo "TF_VAR_api_gateway_name=${{ inputs['api-gateway-name'] }}" >> $GITHUB_ENV
-          echo "TF_VAR_lambda_function_name=${{ inputs['lambda-function-name'] }}" >> $GITHUB_ENV
+          echo "TF_VAR_lambda_function_name=${LAMBDA_FUNCTION_FULL_NAME}" >> $GITHUB_ENV
           echo "TF_VAR_lambda_handler=${{ inputs['lambda-handler'] }}" >> $GITHUB_ENV
           echo "TF_VAR_route_base_path=${{ inputs['route-base-path'] }}" >> $GITHUB_ENV
 
@@ -231,8 +248,12 @@ jobs:
           }
 
           env_suffix="${TF_VAR_env_suffix:-dev}"
-          api_name="${{ inputs['api-gateway-name'] }}-${env_suffix}"
-          lambda_name="${{ inputs['lambda-function-name'] }}"
+          if [ "$env_suffix" = "dev" ]; then
+            api_name="${{ inputs['api-gateway-name'] }}-dev"
+          else
+            api_name="${{ inputs['api-gateway-name'] }}"
+          fi
+          lambda_name="${LAMBDA_FUNCTION_FULL_NAME}"
           role_name="${lambda_name}-exec"
           policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 

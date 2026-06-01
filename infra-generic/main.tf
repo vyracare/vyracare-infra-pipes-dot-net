@@ -18,7 +18,8 @@ data "aws_caller_identity" "current" {}
 locals {
   lambda_source_dir_input = trimspace(var.lambda_source_dir)
   lambda_source_dir       = abspath(local.lambda_source_dir_input)
-  api_gateway_full_name   = "${var.api_gateway_name}-${var.env_suffix}"
+  resource_suffix         = trimspace(var.env_suffix) == "dev" ? "-dev" : ""
+  api_gateway_full_name   = "${var.api_gateway_name}${local.resource_suffix}"
 }
 
 resource "aws_apigatewayv2_api" "http_api" {

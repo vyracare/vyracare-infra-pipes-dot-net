@@ -106,6 +106,22 @@ jobs:
           mkdir -p "${{ inputs['output-dir'] }}"
           dotnet publish "backend/${{ inputs['project-path'] }}" -c Release -r linux-x64 --self-contained false -o "${{ inputs['output-dir'] }}"
 
+      - name: Resolve deployment context
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs['branch-name'] }}" = "main" ]; then
+            env_suffix="prod"
+            resource_suffix=""
+          else
+            env_suffix="dev"
+            resource_suffix="-dev"
+          fi
+
+          echo "TF_VAR_env_suffix=${env_suffix}" >> $GITHUB_ENV
+          echo "TF_VAR_lambda_function_name=vyracare-auth${resource_suffix}" >> $GITHUB_ENV
+
       - name: Export publish dir to TF_VAR
         run: echo "TF_VAR_lambda_source_dir=${GITHUB_WORKSPACE}/${{ inputs['output-dir'] }}" >> $GITHUB_ENV
 
@@ -129,7 +145,11 @@ jobs:
           state_has() {
             echo "$state_list" | grep -qx "$1"
           }
-          api_name="vyracare-api-${TF_VAR_env_suffix:-dev}"
+          if [ "${TF_VAR_env_suffix:-dev}" = "dev" ]; then
+            api_name="vyracare-api-dev"
+          else
+            api_name="vyracare-api"
+          fi
           api_id=$(aws apigatewayv2 get-apis --query "Items[?Name=='${api_name}'].ApiId | [0]" --output text)
 
           if [ -n "$api_id" ] && [ "$api_id" != "None" ]; then

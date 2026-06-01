@@ -10,16 +10,20 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 
+locals {
+  resource_suffix = trimspace(var.env_suffix) == "dev" ? "-dev" : ""
+}
+
 # ------------------------------
 # Cognito User Pool + App Client
 # ------------------------------
 resource "aws_cognito_user_pool" "user_pool" {
-  name = "vyracare-user-pool-${var.env_suffix}"
+  name = "vyracare-user-pool${local.resource_suffix}"
   auto_verified_attributes = ["email"]
 }
 
 resource "aws_cognito_user_pool_client" "app_client" {
-  name            = "vyracare-spa-client-${var.env_suffix}"
+  name            = "vyracare-spa-client${local.resource_suffix}"
   user_pool_id    = aws_cognito_user_pool.user_pool.id
   generate_secret = false
 
@@ -40,7 +44,7 @@ resource "aws_cognito_user_pool_client" "app_client" {
 # API Gateway
 # ------------------------------
 resource "aws_apigatewayv2_api" "http_api" {
-  name          = "vyracare-api-${var.env_suffix}"
+  name          = "vyracare-api${local.resource_suffix}"
   protocol_type = "HTTP"
 
   cors_configuration {
@@ -73,7 +77,7 @@ data "archive_file" "lambda" {
 }
 
 resource "aws_iam_role" "lambda_exec" {
-  name = "vyracare-lambda-exec-${var.env_suffix}"
+  name = "vyracare-lambda-exec${local.resource_suffix}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
@@ -90,7 +94,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 }
 
 resource "aws_iam_role_policy" "lambda_secrets_manager" {
-  name = "vyracare-lambda-secrets-manager-${var.env_suffix}"
+  name = "vyracare-lambda-secrets-manager${local.resource_suffix}"
   role = aws_iam_role.lambda_exec.id
 
   policy = jsonencode({
