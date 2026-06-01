@@ -44,7 +44,7 @@ resource "aws_cognito_user_pool_client" "app_client" {
 # API Gateway
 # ------------------------------
 resource "aws_apigatewayv2_api" "http_api" {
-  name          = "vyracare-api${local.resource_suffix}"
+  name          = "vyracare-api-authentication${local.resource_suffix}"
   protocol_type = "HTTP"
 
   cors_configuration {

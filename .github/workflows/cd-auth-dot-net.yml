@@ -192,7 +192,7 @@ jobs:
             resource_suffix=""
           fi
 
-          api_name="vyracare-api${resource_suffix}"
+          api_name="vyracare-api-authentication${resource_suffix}"
           lambda_name="${TF_VAR_lambda_function_name}"
           role_name="vyracare-lambda-exec${resource_suffix}"
           policy_name="vyracare-lambda-secrets-manager${resource_suffix}"
