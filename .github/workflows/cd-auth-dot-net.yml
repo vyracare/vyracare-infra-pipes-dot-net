@@ -126,7 +126,7 @@ jobs:
           fi
 
           echo "TF_VAR_env_suffix=${env_suffix}" >> $GITHUB_ENV
-          echo "TF_VAR_lambda_function_name=vyracare-auth${resource_suffix}" >> $GITHUB_ENV
+          echo "TF_VAR_lambda_function_name=vyracare-api-authentication${resource_suffix}" >> $GITHUB_ENV
           echo "TF_VAR_lambda_environment_variables={\"Mongo__Database\":\"${mongo_database}\",\"MONGO_SECRET_NAME\":\"${mongo_secret_name}\",\"JWT_SECRET_NAME\":\"${jwt_secret_name}\"}" >> $GITHUB_ENV
 
       - name: Export publish dir to TF_VAR
