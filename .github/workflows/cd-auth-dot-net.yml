@@ -111,12 +111,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${{ inputs['branch-name'] }}" = "main" ]; then
+          branch_name="${{ inputs['branch-name'] }}"
+
+          if [ "$branch_name" = "main" ]; then
             env_suffix="prod"
             resource_suffix=""
             mongo_database="vyracare_db"
             mongo_secret_name="vyracare/shared/mongo-prod"
             jwt_secret_name="vyracare/shared/jwt-signing-prod"
+          elif [ "$branch_name" = "release" ] || [[ "$branch_name" == release/* ]]; then
+            env_suffix="hml"
+            resource_suffix="-hml"
+            mongo_database="vyracare_db_hml"
+            mongo_secret_name="vyracare/shared/mongo-hml"
+            jwt_secret_name="vyracare/shared/jwt-signing-hml"
           else
             env_suffix="dev"
             resource_suffix="-dev"
@@ -186,10 +194,10 @@ jobs:
             fi
           }
 
-          if [ "${TF_VAR_env_suffix:-dev}" = "dev" ]; then
-            resource_suffix="-dev"
-          else
+          if [ "${TF_VAR_env_suffix:-dev}" = "prod" ]; then
             resource_suffix=""
+          else
+            resource_suffix="-${TF_VAR_env_suffix}"
           fi
 
           api_name="vyracare-api-authentication${resource_suffix}"
@@ -347,6 +355,8 @@ jobs:
               return;
             }
 
+            const isReleaseBranch = branch === 'release' || branch.startsWith('release/');
+
             try {
               await github.rest.repos.getBranch({
                 owner,
@@ -356,8 +366,13 @@ jobs:
               core.setOutput('ref', branch);
             } catch (error) {
               if (error.status === 404) {
-                core.info(`Branch ${branch} not found in ${repositoryFullName}. Falling back to default branch.`);
-                core.setOutput('ref', '');
+                if (isReleaseBranch) {
+                  core.info(`Branch ${branch} not found in ${repositoryFullName}. Skipping consumer update for HML.`);
+                  core.setOutput('ref', '__skip__');
+                } else {
+                  core.info(`Branch ${branch} not found in ${repositoryFullName}. Falling back to default branch.`);
+                  core.setOutput('ref', '');
+                }
               } else {
                 throw error;
               }
@@ -367,7 +382,7 @@ jobs:
           BRANCH_NAME: ${{ inputs['branch-name'] }}
 
       - name: Checkout MFE consumidor (branch)
-        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref != ''
+        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref != '' && steps.resolve_consumer_mfe_ref.outputs.ref != '__skip__'
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.consumer_mfe_config.outputs.repository }}
@@ -384,7 +399,7 @@ jobs:
           path: consumer-mfe
 
       - name: Atualizar URL da API no MFE consumidor
-        if: steps.consumer_mfe_config.outputs.enabled == 'true'
+        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref != '__skip__'
         working-directory: ./consumer-mfe
         run: |
           set -euo pipefail
@@ -531,6 +546,8 @@ jobs:
               core.setOutput('ref', '');
               return;
             }
+            const isReleaseBranch = branch === 'release' || branch.startsWith('release/');
+
             try {
               await github.rest.repos.getBranch({
                 owner: 'vyracare',
@@ -540,8 +557,13 @@ jobs:
               core.setOutput('ref', branch);
             } catch (error) {
               if (error.status === 404) {
-                core.info(`Branch ${branch} not found in vyracare/vyracare-app-user-mfe. Falling back to default branch.`);
-                core.setOutput('ref', '');
+                if (isReleaseBranch) {
+                  core.info(`Branch ${branch} not found in vyracare/vyracare-app-user-mfe. Skipping app-user update for HML.`);
+                  core.setOutput('ref', '__skip__');
+                } else {
+                  core.info(`Branch ${branch} not found in vyracare/vyracare-app-user-mfe. Falling back to default branch.`);
+                  core.setOutput('ref', '');
+                }
               } else {
                 throw error;
               }
@@ -550,7 +572,7 @@ jobs:
           BRANCH_NAME: ${{ inputs['branch-name'] }}
 
       - name: Checkout App User MFE (branch)
-        if: steps.resolve_app_user_ref.outputs.ref != ''
+        if: steps.resolve_app_user_ref.outputs.ref != '' && steps.resolve_app_user_ref.outputs.ref != '__skip__'
         uses: actions/checkout@v4
         with:
           repository: vyracare/vyracare-app-user-mfe
@@ -567,6 +589,7 @@ jobs:
           path: app-user-mfe
 
       - name: Update App User MFE apiUrl
+        if: steps.resolve_app_user_ref.outputs.ref != '__skip__'
         working-directory: ./app-user-mfe
         run: |
           set -euo pipefail

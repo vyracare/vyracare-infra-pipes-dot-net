@@ -136,12 +136,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${{ inputs['branch-name'] }}" = "main" ]; then
+          branch_name="${{ inputs['branch-name'] }}"
+
+          if [ "$branch_name" = "main" ]; then
             env_suffix="prod"
             resource_suffix=""
             mongo_database="vyracare_db"
             mongo_secret_name="vyracare/shared/mongo-prod"
             jwt_secret_name="vyracare/shared/jwt-signing-prod"
+          elif [ "$branch_name" = "release" ] || [[ "$branch_name" == release/* ]]; then
+            env_suffix="hml"
+            resource_suffix="-hml"
+            mongo_database="vyracare_db_hml"
+            mongo_secret_name="vyracare/shared/mongo-hml"
+            jwt_secret_name="vyracare/shared/jwt-signing-hml"
           else
             env_suffix="dev"
             resource_suffix="-dev"
@@ -262,10 +270,10 @@ jobs:
           }
 
           env_suffix="${TF_VAR_env_suffix:-dev}"
-          if [ "$env_suffix" = "dev" ]; then
-            api_name="${{ inputs['api-gateway-name'] }}-dev"
-          else
+          if [ "$env_suffix" = "prod" ]; then
             api_name="${{ inputs['api-gateway-name'] }}"
+          else
+            api_name="${{ inputs['api-gateway-name'] }}-$env_suffix"
           fi
           lambda_name="${LAMBDA_FUNCTION_FULL_NAME}"
           role_name="${lambda_name}-exec"
@@ -400,6 +408,8 @@ jobs:
               return;
             }
 
+            const isReleaseBranch = branch === 'release' || branch.startsWith('release/');
+
             try {
               await github.rest.repos.getBranch({
                 owner,
@@ -409,8 +419,13 @@ jobs:
               core.setOutput('ref', branch);
             } catch (error) {
               if (error.status === 404) {
-                core.info(`Branch ${branch} not found in ${repositoryFullName}. Falling back to default branch.`);
-                core.setOutput('ref', '');
+                if (isReleaseBranch) {
+                  core.info(`Branch ${branch} not found in ${repositoryFullName}. Skipping consumer update for HML.`);
+                  core.setOutput('ref', '__skip__');
+                } else {
+                  core.info(`Branch ${branch} not found in ${repositoryFullName}. Falling back to default branch.`);
+                  core.setOutput('ref', '');
+                }
               } else {
                 throw error;
               }
@@ -420,7 +435,7 @@ jobs:
           BRANCH_NAME: ${{ inputs['branch-name'] }}
 
       - name: Checkout MFE consumidor (branch)
-        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref != ''
+        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref != '' && steps.resolve_consumer_mfe_ref.outputs.ref != '__skip__'
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.consumer_mfe_config.outputs.repository }}
@@ -437,7 +452,7 @@ jobs:
           path: consumer-mfe
 
       - name: Atualizar URL da API no MFE consumidor
-        if: steps.consumer_mfe_config.outputs.enabled == 'true'
+        if: steps.consumer_mfe_config.outputs.enabled == 'true' && steps.resolve_consumer_mfe_ref.outputs.ref != '__skip__'
         working-directory: ./consumer-mfe
         run: |
           set -euo pipefail

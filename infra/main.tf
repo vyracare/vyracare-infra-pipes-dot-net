@@ -11,7 +11,8 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 locals {
-  resource_suffix = trimspace(var.env_suffix) == "dev" ? "-dev" : ""
+  normalized_env_suffix = trimspace(var.env_suffix)
+  resource_suffix       = local.normalized_env_suffix == "prod" ? "" : "-${local.normalized_env_suffix}"
 }
 
 # ------------------------------
@@ -118,7 +119,7 @@ resource "aws_cloudwatch_log_group" "lambda_logs" {
 
   tags = {
     Environment = var.env_suffix
-    Project     = "vyracare-auth"
+    Project     = "vyracare-api-authentication"
   }
 
   lifecycle {

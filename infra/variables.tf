@@ -16,47 +16,47 @@ variable "cors_allow_origins" {
 
 variable "api_id" {
   description = "Existing API Gateway ID to reuse"
-  default     = "ef39m2gyya"
+  default     = ""
 }
 
 variable "authorizer_id" {
   description = "Existing API Gateway authorizer id for jwt-authorizer"
   type        = string
-  default     = "ybcgn2"
+  default     = ""
 }
 
 variable "route_id_auth_login" {
   description = "Existing route id for POST /api/auth/login"
   type        = string
-  default     = "zu799q8"
+  default     = ""
 }
 
 variable "route_id_auth_register" {
   description = "Existing route id for POST /api/auth/register"
   type        = string
-  default     = "zycxv1m"
+  default     = ""
 }
 
 variable "route_id_auth_first_access_check" {
   description = "Existing route id for POST /api/auth/first-access/check"
   type        = string
-  default     = "om3xvqs"
+  default     = ""
 }
 
 variable "route_id_auth_first_access_set_password" {
   description = "Existing route id for POST /api/auth/first-access/set-password"
   type        = string
-  default     = "1pcuvk4"
+  default     = ""
 }
 
 variable "route_id_auth_forgot_password" {
   description = "Existing route id for POST /api/auth/forgot-password"
   type        = string
-  default     = "iz6zzl9"
+  default     = ""
 }
 
 variable "lambda_function_name" {
-  default = "vyracare-auth"
+  default = "vyracare-api-authentication"
 }
 
 variable "lambda_source_dir" {
@@ -71,11 +71,11 @@ variable "lambda_source_dir" {
 }
 
 variable "user_pool_client_id" {
-  default = "424aitrab2nma4ttgi0314dfst"
+  default = ""
 }
 
 variable "user_pool_id" {
-  default = "us-east-1_yZNKvAZTf"
+  default = ""
 }
 
 variable "lambda_memory_mb" {
