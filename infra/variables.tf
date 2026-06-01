@@ -89,3 +89,9 @@ variable "lambda_provisioned_concurrency" {
   type        = number
   default     = 0
 }
+
+variable "lambda_environment_variables" {
+  description = "Environment variables injected into the Lambda function"
+  type        = map(string)
+  default     = {}
+}

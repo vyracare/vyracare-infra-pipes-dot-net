@@ -114,13 +114,16 @@ jobs:
           if [ "${{ inputs['branch-name'] }}" = "main" ]; then
             env_suffix="prod"
             resource_suffix=""
+            mongo_database="vyracare_db"
           else
             env_suffix="dev"
             resource_suffix="-dev"
+            mongo_database="vyracare_db_dev"
           fi
 
           echo "TF_VAR_env_suffix=${env_suffix}" >> $GITHUB_ENV
           echo "TF_VAR_lambda_function_name=vyracare-auth${resource_suffix}" >> $GITHUB_ENV
+          echo "TF_VAR_lambda_environment_variables={\"Mongo__Database\":\"${mongo_database}\"}" >> $GITHUB_ENV
 
       - name: Export publish dir to TF_VAR
         run: echo "TF_VAR_lambda_source_dir=${GITHUB_WORKSPACE}/${{ inputs['output-dir'] }}" >> $GITHUB_ENV

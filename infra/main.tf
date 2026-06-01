@@ -138,6 +138,10 @@ resource "aws_lambda_function" "auth_api" {
   source_code_hash = data.archive_file.lambda.output_base64sha256
   publish = true
   timeout = 30
+
+  environment {
+    variables = var.lambda_environment_variables
+  }
 }
 
 # Alias fixo para apontar o API Gateway para a versão publicada e permitir provisioned concurrency
