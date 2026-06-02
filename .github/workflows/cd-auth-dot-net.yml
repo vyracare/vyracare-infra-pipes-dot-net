@@ -649,7 +649,11 @@ jobs:
           if git status --porcelain | grep -q .; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/environments/environments.ts src/environments/environments.hml.ts src/environments/environments.prod.ts || true
+            for file in src/environments/environments.ts src/environments/environments.hml.ts src/environments/environments.prod.ts; do
+              if [ -f "$file" ]; then
+                git add "$file"
+              fi
+            done
             git commit -m "chore: update auth api url"
             git push
           else
