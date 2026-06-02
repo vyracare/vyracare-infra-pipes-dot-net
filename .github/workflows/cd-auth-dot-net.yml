@@ -619,37 +619,39 @@ jobs:
         working-directory: ./app-user-mfe
         run: |
           set -euo pipefail
-          api_url="${API_GATEWAY_URL}/api/auth"
           python - <<'PY'
           import os
           import re
           from pathlib import Path
 
-            api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/api/auth"
-            branch_name = os.environ.get("BRANCH_NAME", "").strip()
+          api_url = os.environ["API_GATEWAY_URL"].rstrip("/") + "/api/auth"
+          branch_name = os.environ.get("BRANCH_NAME", "").strip()
 
-            if branch_name == "main":
-              target_files = ("src/environments/environments.prod.ts",)
-            elif branch_name == "release" or branch_name.startswith("release/"):
-              target_files = ("src/environments/environments.hml.ts",)
-            else:
-              target_files = ("src/environments/environments.ts",)
+          if branch_name == "main":
+            target_files = ("src/environments/environments.prod.ts",)
+          elif branch_name == "release" or branch_name.startswith("release/"):
+            target_files = ("src/environments/environments.hml.ts",)
+          else:
+            target_files = ("src/environments/environments.ts",)
 
-            for file_name in target_files:
-              p = Path(file_name)
-              if not p.exists():
-                continue
-              text = p.read_text()
-              text = re.sub(r"authApiUrl:\\s*'[^']*'", f"authApiUrl: '{api_url}'", text)
-              p.write_text(text)
-            PY
+          for file_name in target_files:
+            path = Path(file_name)
+            if not path.exists():
+              continue
+
+            text = path.read_text(encoding="utf-8")
+            updated = re.sub(r"authApiUrl:\s*'[^']*'", f"authApiUrl: '{api_url}'", text)
+
+            if updated != text:
+              path.write_text(updated, encoding="utf-8")
+          PY
 
           if git status --porcelain | grep -q .; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add src/environments/environments.ts src/environments/environments.hml.ts src/environments/environments.prod.ts || true
-              git commit -m "chore: update auth api url"
-              git push
+            git add src/environments/environments.ts src/environments/environments.hml.ts src/environments/environments.prod.ts || true
+            git commit -m "chore: update auth api url"
+            git push
           else
             echo "App User MFE already up to date."
           fi
