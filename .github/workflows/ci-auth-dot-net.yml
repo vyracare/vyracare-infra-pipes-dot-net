@@ -27,8 +27,38 @@ on:
         required: true
 
 jobs:
+  test-dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Backend
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch-name }}
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: List .NET Projects
+        run: ls -la *.csproj || echo "Nenhum .csproj encontrado"
+
+      - name: Skip tests when no test project is configured
+        if: ${{ inputs.test-project-path == '' }}
+        run: echo "Nenhum projeto de testes configurado para esta esteira."
+
+      - name: Restore test project
+        if: ${{ inputs.test-project-path != '' }}
+        run: dotnet restore ${{ inputs.test-project-path }}
+
+      - name: Run tests
+        if: ${{ inputs.test-project-path != '' }}
+        run: dotnet test ${{ inputs.test-project-path }} -c Release --no-restore --verbosity normal
+
   build-dotnet:
     runs-on: ubuntu-latest
+    needs: test-dotnet
     steps:
       - name: Checkout Backend
         uses: actions/checkout@v4
@@ -49,10 +79,6 @@ jobs:
 
       - name: Build
         run: dotnet build ${{ inputs.project-path }} -c Release --no-restore
-
-      - name: Test
-        if: ${{ inputs.test-project-path != '' }}
-        run: dotnet test ${{ inputs.test-project-path }} -c Release --no-build --verbosity normal
 
       - name: Publish
         run: dotnet publish ${{ inputs.project-path }} -c Release -r linux-x64 --self-contained false -o ${{ inputs.output-dir }}
