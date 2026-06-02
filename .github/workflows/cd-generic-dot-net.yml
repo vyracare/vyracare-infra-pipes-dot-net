@@ -466,6 +466,7 @@ jobs:
           property_name = os.environ["API_URL_PROPERTY"]
           file_paths = [item for item in os.environ["ENVIRONMENT_FILES"].split(";") if item]
           raw_environment_properties = os.environ.get("ENVIRONMENT_PROPERTIES_JSON", "{}").strip() or "{}"
+          branch_name = os.environ.get("BRANCH_NAME", "").strip()
 
           if not file_paths:
             raise SystemExit("Nenhum arquivo de ambiente configurado para o MFE consumidor.")
@@ -492,6 +493,16 @@ jobs:
           }
 
           resolved_properties[property_name] = api_url
+
+          def resolve_target_paths(paths: list[str]) -> list[str]:
+            if branch_name == "main":
+              preferred = [item for item in paths if item.endswith(".prod.ts")]
+            elif branch_name == "release" or branch_name.startswith("release/"):
+              preferred = [item for item in paths if item.endswith(".hml.ts")]
+            else:
+              preferred = [item for item in paths if not item.endswith(".prod.ts") and not item.endswith(".hml.ts")]
+
+            return preferred or paths
 
           def build_environment_file(is_production: bool) -> str:
             properties_lines = [
@@ -545,14 +556,16 @@ jobs:
                 )
                 return "export const environment = {\n" + normalized_body + "\n};\n"
 
-            return build_environment_file(".prod." in path.name)
+            return build_environment_file(".prod." in path.name or ".hml." in path.name)
 
-          for file_path in file_paths:
+          target_paths = resolve_target_paths(file_paths)
+
+          for file_path in target_paths:
             path = Path(file_path)
             if not path.exists():
               path.parent.mkdir(parents=True, exist_ok=True)
               path.write_text(
-                build_environment_file(".prod." in path.name),
+                build_environment_file(".prod." in path.name or ".hml." in path.name),
                 encoding="utf-8"
               )
               created_files.append(file_path)
@@ -595,6 +608,7 @@ jobs:
             echo "MFE consumidor ja esta atualizado."
           fi
         env:
+          BRANCH_NAME: ${{ inputs['branch-name'] }}
           ROUTE_BASE_PATH: ${{ inputs['route-base-path'] }}
           API_URL_PROPERTY: ${{ steps.consumer_mfe_config.outputs.api_url_property }}
           ENVIRONMENT_FILES: ${{ steps.consumer_mfe_config.outputs.environment_files }}
