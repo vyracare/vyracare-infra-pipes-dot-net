@@ -8,12 +8,17 @@ on:
         required: true
         type: string
       project-path:
-        description: "Caminho do .csproj relativo à raiz do repositório"
+        description: "Caminho do .csproj relativo a raiz do repositorio"
         required: false
         default: "*.csproj"
         type: string
+      test-project-path:
+        description: "Caminho do .csproj de testes relativo a raiz do repositorio"
+        required: false
+        default: ""
+        type: string
       output-dir:
-        description: "Diretório de saída do publish"
+        description: "Diretorio de saida do publish"
         required: false
         default: "./publish"
         type: string
@@ -36,7 +41,7 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: List .Net Projects
+      - name: List .NET Projects
         run: ls -la *.csproj || echo "Nenhum .csproj encontrado"
 
       - name: Restore
@@ -44,6 +49,10 @@ jobs:
 
       - name: Build
         run: dotnet build ${{ inputs.project-path }} -c Release --no-restore
+
+      - name: Test
+        if: ${{ inputs.test-project-path != '' }}
+        run: dotnet test ${{ inputs.test-project-path }} -c Release --no-build --verbosity normal
 
       - name: Publish
         run: dotnet publish ${{ inputs.project-path }} -c Release -r linux-x64 --self-contained false -o ${{ inputs.output-dir }}
