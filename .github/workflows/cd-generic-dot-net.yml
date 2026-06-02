@@ -531,11 +531,19 @@ jobs:
             serialized = f'  {key}: "{value}"' if key == "api_id" else f"  {key}: '{value}'"
 
             if re.search(r"export const environment\s*=\s*\{", cleaned_text) and re.search(r"\n\};\s*$", cleaned_text):
-              return re.sub(
-                r"\n\};\s*$",
-                f",\n{serialized}\n}};\n",
-                cleaned_text + "\n"
-              )
+              body_match = re.search(r"export const environment\s*=\s*\{\n?(.*)\n\};\s*$", cleaned_text + "\n", re.S)
+              if body_match:
+                body_lines = [
+                  line.rstrip().rstrip(",")
+                  for line in body_match.group(1).splitlines()
+                  if line.strip()
+                ]
+                body_lines.append(serialized)
+                normalized_body = "\n".join(
+                  line + ("," if index < len(body_lines) - 1 else "")
+                  for index, line in enumerate(body_lines)
+                )
+                return "export const environment = {\n" + normalized_body + "\n};\n"
 
             return build_environment_file(".prod." in path.name)
 
