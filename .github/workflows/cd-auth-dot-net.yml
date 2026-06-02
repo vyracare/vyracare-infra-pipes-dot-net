@@ -328,7 +328,11 @@ jobs:
 
             if repository:
               enabled = "true"
-              environment_files = ";".join(files or ["src/environments/environments.ts"])
+              environment_files = ";".join(files or [
+                  "src/environments/environments.dev.ts",
+                  "src/environments/environments.hml.ts",
+                  "src/environments/environments.prod.ts",
+              ])
               environment_properties_json = json.dumps(environment_properties)
 
           with output_path.open("a", encoding="utf-8") as output:
@@ -446,7 +450,9 @@ jobs:
             elif branch_name == "release" or branch_name.startswith("release/"):
               preferred = [item for item in paths if item.endswith(".hml.ts")]
             else:
-              preferred = [item for item in paths if not item.endswith(".prod.ts") and not item.endswith(".hml.ts")]
+              preferred = [item for item in paths if item.endswith(".dev.ts")]
+              if not preferred:
+                preferred = [item for item in paths if not item.endswith(".prod.ts") and not item.endswith(".hml.ts")]
 
             return preferred or paths
 
@@ -632,7 +638,10 @@ jobs:
           elif branch_name == "release" or branch_name.startswith("release/"):
             target_files = ("src/environments/environments.hml.ts",)
           else:
-            target_files = ("src/environments/environments.ts",)
+            if Path("src/environments/environments.dev.ts").exists():
+              target_files = ("src/environments/environments.dev.ts",)
+            else:
+              target_files = ("src/environments/environments.ts",)
 
           for file_name in target_files:
             path = Path(file_name)
@@ -649,7 +658,7 @@ jobs:
           if git status --porcelain | grep -q .; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            for file in src/environments/environments.ts src/environments/environments.hml.ts src/environments/environments.prod.ts; do
+            for file in src/environments/environments.ts src/environments/environments.dev.ts src/environments/environments.hml.ts src/environments/environments.prod.ts; do
               if [ -f "$file" ]; then
                 git add "$file"
               fi

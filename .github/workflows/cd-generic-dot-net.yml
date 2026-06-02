@@ -381,7 +381,11 @@ jobs:
 
             if repository:
               enabled = "true"
-              environment_files = ";".join(files or ["src/environments/environments.ts"])
+              environment_files = ";".join(files or [
+                  "src/environments/environments.dev.ts",
+                  "src/environments/environments.hml.ts",
+                  "src/environments/environments.prod.ts",
+              ])
               environment_properties_json = json.dumps(environment_properties)
 
           with output_path.open("a", encoding="utf-8") as output:
@@ -500,7 +504,9 @@ jobs:
             elif branch_name == "release" or branch_name.startswith("release/"):
               preferred = [item for item in paths if item.endswith(".hml.ts")]
             else:
-              preferred = [item for item in paths if not item.endswith(".prod.ts") and not item.endswith(".hml.ts")]
+              preferred = [item for item in paths if item.endswith(".dev.ts")]
+              if not preferred:
+                preferred = [item for item in paths if not item.endswith(".prod.ts") and not item.endswith(".hml.ts")]
 
             return preferred or paths
 
