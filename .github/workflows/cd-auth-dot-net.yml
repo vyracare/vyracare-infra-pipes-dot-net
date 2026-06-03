@@ -275,6 +275,8 @@ jobs:
             import_route_if_exists aws_apigatewayv2_route.auth_first_access_check "POST /api/auth/first-access/check"
             import_route_if_exists aws_apigatewayv2_route.auth_first_access_set_password "POST /api/auth/first-access/set-password"
             import_route_if_exists aws_apigatewayv2_route.auth_forgot_password "POST /api/auth/forgot-password"
+            import_route_if_exists aws_apigatewayv2_route.swagger_root "ANY /swagger"
+            import_route_if_exists aws_apigatewayv2_route.swagger_proxy "ANY /swagger/{proxy+}"
           fi
 
 
