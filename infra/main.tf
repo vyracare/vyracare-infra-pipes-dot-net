@@ -95,7 +95,7 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 }
 
 resource "aws_iam_role_policy" "lambda_secrets_manager" {
-  name = "vyracare-lambda-secrets-manager${local.resource_suffix}"
+  name = "vyracare-lambda-parameter-store${local.resource_suffix}"
   role = aws_iam_role.lambda_exec.id
 
   policy = jsonencode({
@@ -104,10 +104,10 @@ resource "aws_iam_role_policy" "lambda_secrets_manager" {
       {
         Effect = "Allow",
         Action = [
-          "secretsmanager:DescribeSecret",
-          "secretsmanager:GetSecretValue"
+          "ssm:GetParameter",
+          "ssm:GetParameters"
         ],
-        Resource = "arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:vyracare/*"
+        Resource = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/vyracare/*"
       }
     ]
   })

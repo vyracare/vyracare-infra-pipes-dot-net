@@ -142,28 +142,28 @@ jobs:
             env_suffix="prod"
             resource_suffix=""
             mongo_database="vyracare_db"
-            mongo_secret_name="vyracare/shared/mongo-prod"
-            jwt_secret_name="vyracare/shared/jwt-signing-prod"
+            mongo_parameter_name="vyracare/shared/mongo-prod"
+            jwt_parameter_name="vyracare/shared/jwt-signing-prod"
           elif [ "$branch_name" = "release" ] || [[ "$branch_name" == release/* ]]; then
             env_suffix="hml"
             resource_suffix="-hml"
             mongo_database="vyracare_db_hml"
-            mongo_secret_name="vyracare/shared/mongo-hml"
-            jwt_secret_name="vyracare/shared/jwt-signing-hml"
+            mongo_parameter_name="vyracare/shared/mongo-hml"
+            jwt_parameter_name="vyracare/shared/jwt-signing-hml"
           else
             env_suffix="dev"
             resource_suffix="-dev"
             mongo_database="vyracare_db_dev"
-            mongo_secret_name="vyracare/shared/mongo-dev"
-            jwt_secret_name="vyracare/shared/jwt-signing-dev"
+            mongo_parameter_name="vyracare/shared/mongo-dev"
+            jwt_parameter_name="vyracare/shared/jwt-signing-dev"
           fi
 
           echo "TF_VAR_env_suffix=${env_suffix}" >> $GITHUB_ENV
           echo "RESOURCE_SUFFIX=${resource_suffix}" >> $GITHUB_ENV
           echo "LAMBDA_FUNCTION_FULL_NAME=${{ inputs['lambda-function-name'] }}${resource_suffix}" >> $GITHUB_ENV
           echo "MONGO_DATABASE=${mongo_database}" >> $GITHUB_ENV
-          echo "MONGO_SECRET_NAME=${mongo_secret_name}" >> $GITHUB_ENV
-          echo "JWT_SECRET_NAME=${jwt_secret_name}" >> $GITHUB_ENV
+          echo "MONGO_PARAMETER_NAME=${mongo_parameter_name}" >> $GITHUB_ENV
+          echo "JWT_PARAMETER_NAME=${jwt_parameter_name}" >> $GITHUB_ENV
 
       - name: Export Terraform vars
         run: |
@@ -182,8 +182,8 @@ jobs:
 
           variables = {}
           mongo_database = os.environ.get("MONGO_DATABASE", "").strip()
-          mongo_secret_name = os.environ.get("MONGO_SECRET_NAME", "").strip()
-          jwt_secret_name = os.environ.get("JWT_SECRET_NAME", "").strip()
+          mongo_parameter_name = os.environ.get("MONGO_PARAMETER_NAME", "").strip()
+          jwt_parameter_name = os.environ.get("JWT_PARAMETER_NAME", "").strip()
           cors_allowed_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "").strip()
           jwt_issuer = os.environ.get("JWT_ISSUER", "").strip()
           jwt_audience = os.environ.get("JWT_AUDIENCE", "").strip()
@@ -191,11 +191,11 @@ jobs:
           if mongo_database:
             variables["Mongo__Database"] = mongo_database
 
-          if mongo_secret_name:
-            variables["MONGO_SECRET_NAME"] = mongo_secret_name
+          if mongo_parameter_name:
+            variables["MONGO_PARAMETER_NAME"] = mongo_parameter_name
 
-          if jwt_secret_name:
-            variables["JWT_SECRET_NAME"] = jwt_secret_name
+          if jwt_parameter_name:
+            variables["JWT_PARAMETER_NAME"] = jwt_parameter_name
 
           if cors_allowed_origins:
             variables["CORS_ALLOWED_ORIGINS"] = cors_allowed_origins
@@ -213,8 +213,8 @@ jobs:
           PY
         env:
           MONGO_DATABASE: ${{ env.MONGO_DATABASE }}
-          MONGO_SECRET_NAME: ${{ env.MONGO_SECRET_NAME }}
-          JWT_SECRET_NAME: ${{ env.JWT_SECRET_NAME }}
+          MONGO_PARAMETER_NAME: ${{ env.MONGO_PARAMETER_NAME }}
+          JWT_PARAMETER_NAME: ${{ env.JWT_PARAMETER_NAME }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
           JWT_ISSUER: ${{ secrets.JWT_ISSUER }}
           JWT_AUDIENCE: ${{ secrets.JWT_AUDIENCE }}

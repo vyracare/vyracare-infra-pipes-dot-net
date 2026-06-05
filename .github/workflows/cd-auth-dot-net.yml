@@ -117,25 +117,25 @@ jobs:
             env_suffix="prod"
             resource_suffix=""
             mongo_database="vyracare_db"
-            mongo_secret_name="vyracare/shared/mongo-prod"
-            jwt_secret_name="vyracare/shared/jwt-signing-prod"
+            mongo_parameter_name="vyracare/shared/mongo-prod"
+            jwt_parameter_name="vyracare/shared/jwt-signing-prod"
           elif [ "$branch_name" = "release" ] || [[ "$branch_name" == release/* ]]; then
             env_suffix="hml"
             resource_suffix="-hml"
             mongo_database="vyracare_db_hml"
-            mongo_secret_name="vyracare/shared/mongo-hml"
-            jwt_secret_name="vyracare/shared/jwt-signing-hml"
+            mongo_parameter_name="vyracare/shared/mongo-hml"
+            jwt_parameter_name="vyracare/shared/jwt-signing-hml"
           else
             env_suffix="dev"
             resource_suffix="-dev"
             mongo_database="vyracare_db_dev"
-            mongo_secret_name="vyracare/shared/mongo-dev"
-            jwt_secret_name="vyracare/shared/jwt-signing-dev"
+            mongo_parameter_name="vyracare/shared/mongo-dev"
+            jwt_parameter_name="vyracare/shared/jwt-signing-dev"
           fi
 
           echo "TF_VAR_env_suffix=${env_suffix}" >> $GITHUB_ENV
           echo "TF_VAR_lambda_function_name=vyracare-api-authentication${resource_suffix}" >> $GITHUB_ENV
-          echo "TF_VAR_lambda_environment_variables={\"Mongo__Database\":\"${mongo_database}\",\"MONGO_SECRET_NAME\":\"${mongo_secret_name}\",\"JWT_SECRET_NAME\":\"${jwt_secret_name}\"}" >> $GITHUB_ENV
+          echo "TF_VAR_lambda_environment_variables={\"Mongo__Database\":\"${mongo_database}\",\"MONGO_PARAMETER_NAME\":\"${mongo_parameter_name}\",\"JWT_PARAMETER_NAME\":\"${jwt_parameter_name}\"}" >> $GITHUB_ENV
 
       - name: Export publish dir to TF_VAR
         run: echo "TF_VAR_lambda_source_dir=${GITHUB_WORKSPACE}/${{ inputs['output-dir'] }}" >> $GITHUB_ENV
@@ -203,7 +203,7 @@ jobs:
           api_name="vyracare-api-authentication${resource_suffix}"
           lambda_name="${TF_VAR_lambda_function_name}"
           role_name="vyracare-lambda-exec${resource_suffix}"
-          policy_name="vyracare-lambda-secrets-manager${resource_suffix}"
+          policy_name="vyracare-lambda-parameter-store${resource_suffix}"
           user_pool_name="vyracare-user-pool${resource_suffix}"
           user_pool_client_name="vyracare-spa-client${resource_suffix}"
           policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
