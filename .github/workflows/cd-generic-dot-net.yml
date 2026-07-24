@@ -334,6 +334,44 @@ jobs:
         working-directory: ./infra-repo/${{ inputs['infra-directory'] }}
         run: terraform apply -auto-approve tfplan
 
+      - name: Publish Lambda version and update live alias
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          function_name="${LAMBDA_FUNCTION_FULL_NAME}"
+          alias_name="live"
+
+          current_alias_version=$(aws lambda get-alias \
+            --function-name "$function_name" \
+            --name "$alias_name" \
+            --query 'FunctionVersion' \
+            --output text 2>/dev/null || echo "")
+
+          published_version=$(aws lambda publish-version \
+            --function-name "$function_name" \
+            --description "Versao publicada automaticamente pelo pipeline ${GITHUB_RUN_ID}" \
+            --query 'Version' \
+            --output text)
+
+          if [ -z "$published_version" ] || [ "$published_version" = "null" ]; then
+            echo "Falha ao publicar nova versao da Lambda ${function_name}."
+            exit 1
+          fi
+
+          if [ "$current_alias_version" = "$published_version" ]; then
+            echo "Alias ${alias_name} ja aponta para a versao ${published_version}."
+          else
+            aws lambda update-alias \
+              --function-name "$function_name" \
+              --name "$alias_name" \
+              --function-version "$published_version" \
+              >/dev/null
+            echo "Alias ${alias_name} atualizado de ${current_alias_version:-sem-versao} para ${published_version}."
+          fi
+
+          echo "PUBLISHED_LAMBDA_VERSION=$published_version" >> "$GITHUB_ENV"
+
       - name: Export API Gateway URL
         working-directory: ./infra-repo/${{ inputs['infra-directory'] }}
         run: |
