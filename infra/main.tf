@@ -133,7 +133,7 @@ resource "aws_lambda_function" "auth_api" {
   function_name = var.lambda_function_name
   role          = aws_iam_role.lambda_exec.arn
   handler       = "Vyracare.Auth" # apenas o nome do assembly!
-  runtime       = "dotnet8"
+  runtime       = "dotnet10"
   memory_size   = var.lambda_memory_mb
   filename      = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
